@@ -1,9 +1,12 @@
 package me.wanttobee.mineai.ai.providers
 
 import com.openai.client.okhttp.OpenAIOkHttpClient
+import com.openai.models.responses.EasyInputMessage
 import com.openai.models.responses.ResponseCreateParams
+import com.openai.models.responses.ResponseInputItem
 import me.wanttobee.mineai.ai.AiModel
 import me.wanttobee.mineai.EnvironmentVariables
+import me.wanttobee.mineai.ai.Session
 import net.minecraft.ChatFormatting
 import java.util.stream.Collectors
 
@@ -38,24 +41,32 @@ object OpenAiProvider : AiProvider {
 		}
 	}
 
-	override fun generateResponse(model: String, prompt: String): String {
-		return withClient { client ->
-			val response = client.responses().create(
-				ResponseCreateParams.builder()
-					.model(model)
-					.input(prompt)
-					.build()
-			)
+	override fun generateResponse(model: AiModel, session: Session): Boolean {
+		return try {
+			val responseText = withClient { client ->
+				val response = client.responses().create(
+					ResponseCreateParams.builder()
+						.model(model.apiName)
+						.inputOfResponse(toInputItems(session))
+						.build()
+				)
 
-			val text = response.output().stream()
-				.flatMap { item -> item.message().stream() }
-				.flatMap { message -> message.content().stream() }
-				.flatMap { content -> content.outputText().stream() }
-				.map { outputText -> outputText.text() }
-				.filter { value -> !value.isNullOrBlank() }
-				.collect(Collectors.joining("\n"))
+				val text = response.output().stream()
+					.flatMap { item -> item.message().stream() }
+					.flatMap { message -> message.content().stream() }
+					.flatMap { content -> content.outputText().stream() }
+					.map { outputText -> outputText.text() }
+					.filter { value -> !value.isNullOrBlank() }
+					.collect(Collectors.joining("\n"))
 
-			text.ifBlank { "OpenAI returned an empty response." }
+				text.ifBlank { "OpenAI returned an empty response." }
+			}
+
+			session.addAssistantMessage(responseText)
+			true
+		} catch (exception: Exception) {
+			session.addErrorMessage(exception.message ?: "Unknown error")
+			false
 		}
 	}
 
@@ -74,6 +85,27 @@ object OpenAiProvider : AiProvider {
 			return block(client)
 		} finally {
 			client.close()
+		}
+	}
+
+	private fun toInputItems(session: Session): List<ResponseInputItem> {
+		return session.messages().mapNotNull { message ->
+			when (message.type) {
+				Session.Message.Type.USER -> ResponseInputItem.ofEasyInputMessage(
+					EasyInputMessage.builder()
+						.role(EasyInputMessage.Role.USER)
+						.content(message.content)
+						.build()
+				)
+				Session.Message.Type.ASSISTANT -> ResponseInputItem.ofEasyInputMessage(
+					EasyInputMessage.builder()
+						.role(EasyInputMessage.Role.ASSISTANT)
+						.content(message.content)
+						.phase(EasyInputMessage.Phase.FINAL_ANSWER)
+						.build()
+				)
+				Session.Message.Type.ERROR -> null
+			}
 		}
 	}
 }

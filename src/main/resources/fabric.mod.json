@@ -21,12 +21,6 @@
 				"adapter": "kotlin"
 			}
 		],
-		"client": [
-			{
-				"value": "me.wanttobee.mineai.MineAIClient",
-				"adapter": "kotlin"
-			}
-		],
 		"fabric-datagen": [
 			{
 				"value": "me.wanttobee.mineai.MineAIDataGenerator",

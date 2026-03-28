@@ -4,9 +4,8 @@ import com.mojang.brigadier.LiteralMessage
 import com.mojang.brigadier.CommandDispatcher
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.suggestion.SuggestionsBuilder
-import me.wanttobee.mineai.ai.AiProviderStatus
 import me.wanttobee.mineai.ai.AiService
-import me.wanttobee.mineai.ai.AiSessionState
+import me.wanttobee.mineai.ai.Session
 import me.wanttobee.mineai.ai.AiTarget
 import me.wanttobee.mineai.ai.Providers
 import net.minecraft.ChatFormatting
@@ -55,6 +54,13 @@ object AiCommands {
 							1
 						}
 						.then(
+							MinecraftCommands.literal("get")
+								.executes { context ->
+									showCurrentTarget(context.source)
+									1
+								}
+						)
+						.then(
 							MinecraftCommands.argument("provider", StringArgumentType.word())
 								.suggests(::suggestProviders)
 								.executes { context ->
@@ -98,6 +104,13 @@ object AiCommands {
 								}
 						)
 				)
+				.then(
+					MinecraftCommands.literal("clear")
+						.executes { context ->
+							clearSession(context.source)
+							1
+						}
+				)
 		)
 	}
 
@@ -107,15 +120,15 @@ object AiCommands {
 
 			server.execute {
 				val player = server.playerList.getPlayer(playerId) ?: return@execute
-				for (status in statuses) {
-					player.sendSystemMessage(formatProviderStatus(status))
+				for ((provider, exception) in statuses) {
+					player.sendSystemMessage(formatProviderStatus(provider, exception))
 				}
 			}
 		}
 	}
 
 	private fun sendToCurrentTarget(server: MinecraftServer, playerId: UUID, message: String) {
-		val target = AiSessionState.currentTarget(playerId)
+		val target = AiService.currentTarget(playerId)
 		if (target == null) {
 			server.execute {
 				val player = server.playerList.getPlayer(playerId) ?: return@execute
@@ -136,26 +149,17 @@ object AiCommands {
 		}
 
 		executor.submit {
-			try {
-				val response = AiService.generateResponse(target, message)
-				server.execute {
-					val player = server.playerList.getPlayer(playerId) ?: return@execute
-					player.sendSystemMessage(formatTargetResponse(target, response))
-				}
-			} catch (exception: Exception) {
-				server.execute {
-					val player = server.playerList.getPlayer(playerId) ?: return@execute
-					player.sendSystemMessage(
-						Component.literal("${target.displayName} error: ${exception.message ?: "Unknown error"}")
-							.withStyle(ChatFormatting.RED)
-					)
-				}
+			val result = AiService.sendMessage(playerId, message)
+			server.execute {
+				val player = server.playerList.getPlayer(playerId) ?: return@execute
+				val currentResult = result ?: return@execute
+				player.sendSystemMessage(formatSessionMessage(currentResult.first, currentResult.second))
 			}
 		}
 	}
 
 	private fun selectTarget(source: CommandSourceStack, playerId: UUID, providerName: String, modelName: String?) {
-		val target = AiSessionState.selectTarget(playerId, providerName, modelName)
+		val target = AiService.selectTarget(playerId, providerName, modelName)
 		if (target == null) {
 			source.sendFailure(
 				Component.literal("Unknown AI provider: $providerName")
@@ -164,10 +168,10 @@ object AiCommands {
 			return
 		}
 
-		source.sendSuccess(
+			source.sendSuccess(
 			{
 				Component.literal("Target set to ").withStyle(ChatFormatting.YELLOW)
-					.append(Component.literal(target.displayName).withStyle(target.provider.chatColor))
+					.append(Component.literal(target.model.displayName).withStyle(target.provider.chatColor))
 			},
 				false
 			)
@@ -175,7 +179,7 @@ object AiCommands {
 
 	private fun showCurrentTarget(source: CommandSourceStack) {
 		val player = source.player ?: return
-		val target = AiSessionState.currentTarget(player.uuid)
+		val target = AiService.currentTarget(player.uuid)
 		if (target == null) {
 			source.sendSuccess(
 				{ Component.literal("No AI target selected.").withStyle(ChatFormatting.YELLOW) },
@@ -187,23 +191,51 @@ object AiCommands {
 		source.sendSuccess(
 			{
 				Component.literal("Current AI target: ").withStyle(ChatFormatting.YELLOW)
-					.append(Component.literal(target.displayName).withStyle(target.provider.chatColor))
+					.append(Component.literal(target.provider.displayName).withStyle(target.provider.chatColor))
+					.append(Component.literal(" / ").withStyle(ChatFormatting.DARK_GRAY))
+					.append(Component.literal(target.model.displayName).withStyle(ChatFormatting.WHITE))
 			},
 			false
 		)
 	}
 
-	private fun formatProviderStatus(status: AiProviderStatus): Component {
-		return Component.literal("${status.provider.displayName}: ").withStyle(status.provider.chatColor)
+	private fun clearSession(source: CommandSourceStack) {
+		val player = source.player ?: return
+		val cleared = AiService.clearSession(player.uuid)
+
+		source.sendSuccess(
+			{
+				Component.literal(
+					if (cleared) "AI session cleared."
+					else "No AI session to clear."
+				).withStyle(ChatFormatting.YELLOW)
+			},
+			false
+		)
+	}
+
+	private fun formatProviderStatus(
+		provider: me.wanttobee.mineai.ai.providers.AiProvider,
+		exception: Exception?,
+	): Component {
+		return Component.literal("${provider.displayName}: ").withStyle(provider.chatColor)
 			.append(
-				Component.literal(status.message)
-					.withStyle(if (status.isReady) ChatFormatting.WHITE else ChatFormatting.RED)
+				Component.literal(exception?.message ?: "ready")
+					.withStyle(if (exception == null) ChatFormatting.WHITE else ChatFormatting.RED)
 			)
 	}
 
-	private fun formatTargetResponse(target: AiTarget, response: String): Component {
-		return Component.literal("${target.displayName}: ").withStyle(target.provider.chatColor)
-			.append(Component.literal(response).withStyle(ChatFormatting.WHITE))
+	private fun formatSessionMessage(target: AiTarget, message: Session.Message): Component {
+		return when (message.type) {
+			Session.Message.Type.ASSISTANT -> Component.literal("${target.model.displayName}: ")
+				.withStyle(target.provider.chatColor)
+				.append(Component.literal(message.content).withStyle(ChatFormatting.WHITE))
+			Session.Message.Type.ERROR -> Component.literal("${target.model.displayName} error: ")
+				.withStyle(ChatFormatting.RED)
+				.append(Component.literal(message.content).withStyle(ChatFormatting.WHITE))
+			Session.Message.Type.USER -> Component.literal("you: ").withStyle(ChatFormatting.GRAY)
+				.append(Component.literal(message.content).withStyle(ChatFormatting.WHITE))
+		}
 	}
 
 	private fun suggestProviders(

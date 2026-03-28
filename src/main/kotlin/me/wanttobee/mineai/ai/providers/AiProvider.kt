@@ -1,6 +1,7 @@
 package me.wanttobee.mineai.ai.providers
 
 import me.wanttobee.mineai.ai.AiModel
+import me.wanttobee.mineai.ai.Session
 import net.minecraft.ChatFormatting
 
 interface AiProvider {
@@ -13,6 +14,5 @@ interface AiProvider {
 	val chatColor: ChatFormatting
 
 	fun ping()
-
-	fun generateResponse(model: String, prompt: String): String
+	fun generateResponse(model: AiModel, session: Session): Boolean
 }

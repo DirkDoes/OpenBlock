@@ -1,18 +1,45 @@
 package me.wanttobee.mineai.ai
 
-object AiService {
-	fun generateResponse(target: AiTarget, prompt: String): String {
-		return target.provider.generateResponse(target.modelId, prompt)
-	}
+import me.wanttobee.mineai.ai.providers.AiProvider
+import java.util.UUID
 
-	fun pingProviders(): List<AiProviderStatus> {
+object AiService {
+	fun pingProviders(): List<Pair<AiProvider, Exception?>> {
 		return Providers.all.map { provider ->
 			try {
 				provider.ping()
-				AiProviderStatus(provider, true, "ready")
+				provider to null
 			} catch (exception: Exception) {
-				AiProviderStatus(provider, false, exception.message ?: "request failed")
+				provider to exception
 			}
 		}
 	}
+
+	fun currentTarget(playerId: UUID): AiTarget? = AiTargetManager.currentTarget(playerId)
+
+	fun selectTarget(playerId: UUID, providerName: String, modelId: String?): AiTarget? =
+		AiTargetManager.selectTarget(playerId, providerName, modelId)
+
+	fun sendMessage(playerId: UUID, message: String): Pair<AiTarget, Session.Message>? {
+		val target = currentTarget(playerId) ?: return null
+		val session = AiSessionManager.getOrCreateSession(playerId)
+		session.addUserMessage(message)
+		val succeeded = try {
+			target.provider.generateResponse(target.model, session)
+		} catch (exception: Exception) {
+			session.addErrorMessage(exception.message ?: "Unknown error")
+			false
+		}
+		val lastMessage = session.lastMessage()
+		return if (succeeded && lastMessage != null && lastMessage.type != Session.Message.Type.USER) {
+			target to lastMessage
+		} else if (lastMessage != null && lastMessage.type != Session.Message.Type.USER) {
+			target to lastMessage
+		} else {
+			session.addErrorMessage("No response message was appended to the session.")
+			target to session.lastMessage()!!
+		}
+	}
+
+	fun clearSession(playerId: UUID): Boolean = AiSessionManager.clearSession(playerId)
 }

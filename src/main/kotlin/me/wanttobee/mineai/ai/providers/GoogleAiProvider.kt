@@ -1,8 +1,11 @@
 package me.wanttobee.mineai.ai.providers
 
 import com.google.genai.Client
+import com.google.genai.types.Content
+import com.google.genai.types.Part
 import me.wanttobee.mineai.ai.AiModel
 import me.wanttobee.mineai.EnvironmentVariables
+import me.wanttobee.mineai.ai.Session
 import net.minecraft.ChatFormatting
 
 object GoogleAiProvider : AiProvider {
@@ -29,11 +32,19 @@ object GoogleAiProvider : AiProvider {
 		}
 	}
 
-	override fun generateResponse(model: String, prompt: String): String {
-		return withClient { client ->
-			val response = client.models.generateContent(model, prompt, null)
-			response.text()?.ifBlank { "Google returned an empty response." }
-				?: "Google returned an empty response."
+	override fun generateResponse(model: AiModel, session: Session): Boolean {
+		return try {
+			val responseText = withClient { client ->
+				val response = client.models.generateContent(model.apiName, toContents(session), null)
+				response.text()?.ifBlank { "Google returned an empty response." }
+					?: "Google returned an empty response."
+			}
+
+			session.addAssistantMessage(responseText)
+			true
+		} catch (exception: Exception) {
+			session.addErrorMessage(exception.message ?: "Unknown error")
+			false
 		}
 	}
 
@@ -52,6 +63,22 @@ object GoogleAiProvider : AiProvider {
 			return block(client)
 		} finally {
 			client.close()
+		}
+	}
+
+	private fun toContents(session: Session): List<Content> {
+		return session.messages().mapNotNull { message ->
+			when (message.type) {
+				Session.Message.Type.USER -> Content.builder()
+					.role("user")
+					.parts(Part.builder().text(message.content).build())
+					.build()
+				Session.Message.Type.ASSISTANT -> Content.builder()
+					.role("model")
+					.parts(Part.builder().text(message.content).build())
+					.build()
+				Session.Message.Type.ERROR -> null
+			}
 		}
 	}
 }

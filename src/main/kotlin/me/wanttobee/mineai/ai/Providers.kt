@@ -16,12 +16,6 @@ object Providers {
 		return all.map { provider -> provider.name }.sorted()
 	}
 
-	fun modelList(): List<String> {
-		return all.flatMap { provider -> provider.models.map { model -> model.apiName } }
-			.distinctBy { model -> model.lowercase() }
-			.sorted()
-	}
-
 	fun modelList(providerName: String): List<AiModel> {
 		return getProviderByName(providerName)?.models?.sortedBy { model -> model.displayName } ?: emptyList()
 	}

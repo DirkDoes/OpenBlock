@@ -2,8 +2,10 @@ package me.wanttobee.mineai.ai.providers
 
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.models.messages.MessageCreateParams
+import com.anthropic.models.messages.MessageParam
 import me.wanttobee.mineai.ai.AiModel
 import me.wanttobee.mineai.EnvironmentVariables
+import me.wanttobee.mineai.ai.Session
 import net.minecraft.ChatFormatting
 import java.util.stream.Collectors
 
@@ -29,23 +31,46 @@ object AnthropicProvider : AiProvider {
 		}
 	}
 
-	override fun generateResponse(model: String, prompt: String): String {
-		return withClient { client ->
-			val message = client.messages().create(
-				MessageCreateParams.builder()
-					.model(model)
+	override fun generateResponse(model: AiModel, session: Session): Boolean {
+		return try {
+			val responseText = withClient { client ->
+				val builder = MessageCreateParams.builder()
+					.model(model.apiName)
 					.maxTokens(512)
-					.addUserMessage(prompt)
-					.build()
-			)
 
-			val text = message.content().stream()
-				.flatMap { contentBlock -> contentBlock.text().stream() }
-				.map { textBlock -> textBlock.text() }
-				.filter { value -> !value.isNullOrBlank() }
-				.collect(Collectors.joining("\n"))
+				for (message in session.messages()) {
+					when (message.type) {
+						Session.Message.Type.USER -> builder.addMessage(
+							MessageParam.builder()
+								.role(MessageParam.Role.USER)
+								.content(message.content)
+								.build()
+						)
+						Session.Message.Type.ASSISTANT -> builder.addMessage(
+							MessageParam.builder()
+								.role(MessageParam.Role.ASSISTANT)
+								.content(message.content)
+								.build()
+						)
+						Session.Message.Type.ERROR -> Unit
+					}
+				}
 
-			text.ifBlank { "Claude returned an empty response." }
+				val response = client.messages().create(builder.build())
+				val text = response.content().stream()
+					.flatMap { contentBlock -> contentBlock.text().stream() }
+					.map { textBlock -> textBlock.text() }
+					.filter { value -> !value.isNullOrBlank() }
+					.collect(Collectors.joining("\n"))
+
+				text.ifBlank { "Claude returned an empty response." }
+			}
+
+			session.addAssistantMessage(responseText)
+			true
+		} catch (exception: Exception) {
+			session.addErrorMessage(exception.message ?: "Unknown error")
+			false
 		}
 	}
 
@@ -66,4 +91,5 @@ object AnthropicProvider : AiProvider {
 			client.close()
 		}
 	}
+
 }
