@@ -63,7 +63,6 @@ object PlayerContextCapturer {
 	) {
 		fun promptPrefix(): String {
 			val parts = mutableListOf(
-				username,
 				gameMode,
 			)
 

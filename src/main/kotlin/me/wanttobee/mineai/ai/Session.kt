@@ -12,21 +12,25 @@ class Session(
 	fun messages(): List<Message> = messages.toList()
 	fun lastMessage(): Message? = messages.lastOrNull()
 	fun effectiveSystemPrompt(): String? {
-		val promptParts = buildList {
-			systemPrompt?.trim()?.takeIf { it.isNotEmpty() }?.let(::add)
-			boundPlayerId?.let { playerId ->
-				add(
-					"Session binding: this conversation is bound to Minecraft player UUID $playerId.\n" +
-						"User messages may begin with live player context in the form " +
-						"[username - game mode - pos(x, y, z)/fac(yaw, pitch) - dimension].\n" +
-						"If the player is in survival or adventure mode, the prefix may also include " +
-						"hp(...), xp(...), and hunger(...).\n" +
-						"Treat that prefix as authoritative context about the player speaking to you."
-				)
-			}
+		val basePrompt = systemPrompt?.trim().orEmpty()
+		if (boundPlayerId == null) {
+			return basePrompt.ifBlank { null }
 		}
 
-		return promptParts.joinToString("\n\n").ifBlank { null }
+		val username = PlayerContextCapturer.capture(boundPlayerId)?.username
+		val bindingPrompt =
+			"Session binding: this conversation is with player UUID $boundPlayerId" +
+				(username?.let { " (username: $it)" } ?: "") + ".\n" +
+				"User messages may begin with live player context in the form " +
+				"[game mode - pos(x, y, z)/fac(yaw, pitch) - dimension].\n" +
+				"If the player is in survival or adventure mode, the prefix may also include " +
+				"hp(...), xp(...), and hunger(...).\n" +
+				"Treat that prefix as authoritative context about the player speaking to you, " +
+				" don't directly respond to it as this is automatically generated."
+
+		return listOf(basePrompt, bindingPrompt)
+			.filter { it.isNotBlank() }
+			.joinToString("\n\n")
 	}
 
 	fun addUserMessage(content: String) {

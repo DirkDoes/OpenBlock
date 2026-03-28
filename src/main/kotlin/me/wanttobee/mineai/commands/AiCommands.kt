@@ -8,11 +8,13 @@ import me.wanttobee.mineai.ai.AiService
 import me.wanttobee.mineai.ai.AiTargetManager
 import me.wanttobee.mineai.ai.Providers
 import me.wanttobee.mineai.ai.Session
+import me.wanttobee.mineai.chat.MinecraftTextFormatter
 import net.minecraft.ChatFormatting
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.commands.SharedSuggestionProvider
 import net.minecraft.commands.Commands as MinecraftCommands
 import net.minecraft.network.chat.Component
+import net.minecraft.network.chat.Style
 import net.minecraft.server.MinecraftServer
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -229,12 +231,12 @@ object AiCommands {
 		return when (message.type) {
 			Session.Message.Type.ASSISTANT -> Component.literal("${target.model.displayName}: ")
 				.withStyle(target.provider.chatColor)
-				.append(Component.literal(message.content).withStyle(ChatFormatting.WHITE))
+				.append(MinecraftTextFormatter.format(message.content, Style.EMPTY.withColor(ChatFormatting.WHITE)))
 			Session.Message.Type.ERROR -> Component.literal("${target.model.displayName} error: ")
 				.withStyle(ChatFormatting.RED)
-				.append(Component.literal(message.content).withStyle(ChatFormatting.WHITE))
+				.append(MinecraftTextFormatter.format(message.content, Style.EMPTY.withColor(ChatFormatting.WHITE)))
 			Session.Message.Type.USER -> Component.literal("you: ").withStyle(ChatFormatting.GRAY)
-				.append(Component.literal(message.content).withStyle(ChatFormatting.WHITE))
+				.append(MinecraftTextFormatter.format(message.content, Style.EMPTY.withColor(ChatFormatting.WHITE)))
 		}
 	}
 

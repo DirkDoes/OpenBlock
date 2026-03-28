@@ -24,7 +24,7 @@ object AiService {
 		val target = currentTarget(playerId) ?: return null
 		val session = AiSessionManager.getSession(playerId) ?: AiSessionManager.createSession(
 			playerId = playerId,
-			systemPrompt = null,
+			systemPrompt = KnowledgeBase.MINEAI_IDENTITY,
 			bindPlayerId = true,
 		)
 		session.addUserMessage(message)
