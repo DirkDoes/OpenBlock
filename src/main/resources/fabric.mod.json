@@ -1,0 +1,51 @@
+{
+	"schemaVersion": 1,
+	"id": "mineai",
+	"version": "${version}",
+	"name": "MineAI",
+	"description": "This is an example description! Tell everyone what your mod is about!",
+	"authors": [
+		"Me!"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/mineai/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"server": [
+			{
+				"value": "me.wanttobee.mineai.MineAI",
+				"adapter": "kotlin"
+			}
+		],
+		"client": [
+			{
+				"value": "me.wanttobee.mineai.MineAIClient",
+				"adapter": "kotlin"
+			}
+		],
+		"fabric-datagen": [
+			{
+				"value": "me.wanttobee.mineai.MineAIDataGenerator",
+				"adapter": "kotlin"
+			}
+		]
+	},
+	"mixins": [
+		"mineai.mixins.json",
+		{
+			"config": "mineai.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.18.5",
+		"minecraft": "~26.1",
+		"java": ">=25",
+		"fabric-api": "*",
+		"fabric-language-kotlin": "*"
+	}
+}
