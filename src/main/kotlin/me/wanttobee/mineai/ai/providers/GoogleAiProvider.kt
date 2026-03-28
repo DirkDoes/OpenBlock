@@ -1,12 +1,18 @@
 package me.wanttobee.mineai.ai.providers
 
 import com.google.genai.Client
+import com.google.genai.types.AutomaticFunctionCallingConfig
 import com.google.genai.types.Content
+import com.google.genai.types.FunctionResponse
+import com.google.genai.types.FunctionDeclaration
 import com.google.genai.types.GenerateContentConfig
 import com.google.genai.types.Part
+import com.google.genai.types.Schema
 import com.google.genai.types.ThinkingConfig
 import me.wanttobee.mineai.ai.sessions.Session
 import me.wanttobee.mineai.ai.sessions.AiModel
+import me.wanttobee.mineai.ai.tools.AiTool
+import me.wanttobee.mineai.ai.tools.ToolManager
 import me.wanttobee.mineai.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
 
@@ -117,17 +123,22 @@ object GoogleAiProvider : AiProvider {
 	override fun generate(model: AiModel, session: Session, onActionChange: (String) -> Unit): Boolean {
 		return try {
 			val responseText = withClient { client ->
-				val config = GenerateContentConfig.builder().apply {
-					session.effectiveSystemPrompt()?.let { prompt ->
-						systemInstruction(
-							Content.builder()
-								.parts(Part.builder().text(prompt).build())
-								.build()
-						)
-					}
-					applyThinking(model)
-				}.build()
-				streamResponse(client, model.apiName, toContents(session), config, model, onActionChange)
+				val enabledTools = enabledTools(session)
+				if (enabledTools.isEmpty()) {
+					val config = GenerateContentConfig.builder().apply {
+						session.effectiveSystemPrompt()?.let { prompt ->
+							systemInstruction(
+								Content.builder()
+									.parts(Part.builder().text(prompt).build())
+									.build()
+							)
+						}
+						applyThinking(model)
+					}.build()
+					streamResponse(client, model.apiName, toContents(session), config, model, onActionChange)
+				} else {
+					generateWithTools(client, model, session, enabledTools, onActionChange)
+				}
 			}
 
 			session.addAssistantMessage(responseText)
@@ -136,6 +147,77 @@ object GoogleAiProvider : AiProvider {
 			session.addErrorMessage(exception.message ?: "Unknown error")
 			false
 		}
+	}
+
+	private fun generateWithTools(
+		client: Client,
+		model: AiModel,
+		session: Session,
+		enabledTools: List<me.wanttobee.mineai.ai.tools.AiTool>,
+		onActionChange: (String) -> Unit,
+	): String {
+		val conversation = toContents(session).toMutableList()
+
+		repeat(AiProvider.MAX_TOOL_CALLS) {
+			val config = GenerateContentConfig.builder().apply {
+				session.effectiveSystemPrompt()?.let { prompt ->
+					systemInstruction(
+						Content.builder()
+							.parts(Part.builder().text(prompt).build())
+							.build()
+					)
+				}
+				applyThinking(model)
+				tools(enabledTools.map(::googleTool))
+				automaticFunctionCalling(
+					AutomaticFunctionCallingConfig.builder()
+						.disable(true)
+						.build()
+				)
+			}.build()
+
+			val response = client.models.generateContent(model.apiName, conversation, config)
+			val functionCalls = response.functionCalls() ?: emptyList()
+			if (functionCalls.isEmpty()) {
+				onActionChange("generating")
+				return response.text()?.takeIf { it.isNotBlank() } ?: "Google returned an empty response."
+			}
+
+			response.parts()?.takeIf { it.isNotEmpty() }?.let { parts ->
+				conversation += Content.builder()
+					.role("model")
+					.parts(parts)
+					.build()
+			}
+
+			val functionResponses = functionCalls.map { functionCall ->
+				onActionChange("using ${functionCall.name().orElse("tool")}")
+				val result = ToolManager.execute(
+					playerId = session.boundPlayerId,
+					name = functionCall.name().orElse(""),
+					arguments = functionCall.args()
+						.orElse(emptyMap())
+						.mapValues { (_, value) -> value?.toString().orEmpty() },
+				) ?: missingToolResult(functionCall.name().orElse(""))
+
+				Part.builder()
+					.functionResponse(
+						FunctionResponse.builder()
+							.name(functionCall.name().orElse(""))
+							.id(functionCall.id().orElse(null))
+							.response(result.asResponseMap())
+							.build()
+					)
+					.build()
+			}
+
+			conversation += Content.builder()
+				.role("user")
+				.parts(functionResponses)
+				.build()
+		}
+
+		return toolCallLimitReachedMessage()
 	}
 
 	private fun streamResponse(
@@ -208,6 +290,32 @@ object GoogleAiProvider : AiProvider {
 		}.build()
 
 		thinkingConfig(thinkingConfig)
+	}
+
+	private fun googleTool(tool: AiTool): com.google.genai.types.Tool {
+		val properties = tool.parameters.associate { parameter ->
+			parameter.name to Schema.builder()
+				.type("STRING")
+				.description(parameter.description)
+				.build()
+		}
+
+		val parameters = Schema.builder()
+			.type("OBJECT")
+			.properties(properties)
+			.required(tool.parameters.map(AiTool.Parameter::name))
+			.propertyOrdering(tool.parameters.map(AiTool.Parameter::name))
+			.build()
+
+		return com.google.genai.types.Tool.builder()
+			.functionDeclarations(
+				FunctionDeclaration.builder()
+					.name(tool.name)
+					.description(tool.description)
+					.parameters(parameters)
+					.build()
+			)
+			.build()
 	}
 
 	private fun client() = Client.builder()

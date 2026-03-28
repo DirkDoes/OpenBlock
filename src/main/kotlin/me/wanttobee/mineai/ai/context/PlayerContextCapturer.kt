@@ -1,4 +1,4 @@
-package me.wanttobee.mineai.ai.tools
+package me.wanttobee.mineai.ai.context
 
 import net.minecraft.server.MinecraftServer
 import net.minecraft.world.level.GameType
@@ -18,6 +18,8 @@ object PlayerContextCapturer {
 		if (this.server === server)
 			this.server = null
 	}
+
+	fun currentServer(): MinecraftServer? = server
 
 	fun capture(playerId: UUID): PlayerContext? {
 		val player = server?.playerList?.getPlayer(playerId) ?: return null

@@ -1,9 +1,12 @@
 package me.wanttobee.mineai.ai
 
+import me.wanttobee.mineai.ai.context.KnowledgeBase
 import me.wanttobee.mineai.ai.providers.AiProvider
 import me.wanttobee.mineai.ai.sessions.AiSessionManager
 import me.wanttobee.mineai.ai.sessions.AiTargetManager
 import me.wanttobee.mineai.ai.sessions.Session
+import me.wanttobee.mineai.ai.tools.AiTool
+import me.wanttobee.mineai.ai.tools.ToolManager
 import java.util.UUID
 
 object AiService {
@@ -59,4 +62,16 @@ object AiService {
 	}
 
 	fun clearSession(playerId: UUID): Boolean = AiSessionManager.clearSession(playerId)
+
+	fun allTools(): List<AiTool> = ToolManager.allTools()
+
+	fun isToolEnabled(playerId: UUID, toolName: String): Boolean = ToolManager.isEnabled(playerId, toolName)
+
+	fun setToolEnabled(playerId: UUID, toolName: String, enabled: Boolean): Boolean {
+		return ToolManager.setEnabled(playerId, toolName, enabled)
+	}
+
+	fun executeTool(playerId: UUID?, toolName: String, arguments: Map<String, String>): AiTool.ExecutionResult? {
+		return ToolManager.execute(playerId, toolName, arguments)
+	}
 }

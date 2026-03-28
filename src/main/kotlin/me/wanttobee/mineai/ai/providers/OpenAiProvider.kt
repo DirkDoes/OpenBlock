@@ -1,13 +1,19 @@
 package me.wanttobee.mineai.ai.providers
 
 import com.openai.client.okhttp.OpenAIOkHttpClient
+import com.openai.core.JsonValue as OpenAiJsonValue
+import com.openai.models.responses.FunctionTool as OpenAiFunctionTool
 import com.openai.models.responses.EasyInputMessage
+import com.openai.models.responses.Response
 import com.openai.models.responses.ResponseCreateParams
 import com.openai.models.responses.ResponseInputItem
+import com.openai.models.responses.ResponseOutputItem
 import com.openai.models.Reasoning
 import com.openai.models.ReasoningEffort
 import me.wanttobee.mineai.ai.sessions.Session
 import me.wanttobee.mineai.ai.sessions.AiModel
+import me.wanttobee.mineai.ai.tools.AiTool
+import me.wanttobee.mineai.ai.tools.ToolManager
 import me.wanttobee.mineai.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
 import java.util.stream.Collectors
@@ -110,13 +116,18 @@ object OpenAiProvider : AiProvider {
 	override fun generate(model: AiModel, session: Session, onActionChange: (String) -> Unit): Boolean {
 		return try {
 			val responseText = withClient { client ->
-				val params = ResponseCreateParams.builder()
-					.model(model.apiName)
-					.inputOfResponse(toInputItems(session))
+				val enabledTools = enabledTools(session)
+				if (enabledTools.isEmpty()) {
+					val params = ResponseCreateParams.builder()
+						.model(model.apiName)
+						.inputOfResponse(toInputItems(session))
 
-				session.effectiveSystemPrompt()?.let(params::instructions)
-				applyReasoning(model, params)
-				streamResponse(client, params.build(), model, onActionChange)
+					session.effectiveSystemPrompt()?.let(params::instructions)
+					applyReasoning(model, params)
+					streamResponse(client, params.build(), model, onActionChange)
+				} else {
+					generateWithTools(client, model, session, enabledTools, onActionChange)
+				}
 			}
 
 			session.addAssistantMessage(responseText)
@@ -125,6 +136,64 @@ object OpenAiProvider : AiProvider {
 			session.addErrorMessage(exception.message ?: "Unknown error")
 			false
 		}
+	}
+
+	private fun generateWithTools(
+		client: com.openai.client.OpenAIClient,
+		model: AiModel,
+		session: Session,
+		enabledTools: List<me.wanttobee.mineai.ai.tools.AiTool>,
+		onActionChange: (String) -> Unit,
+	): String {
+		var previousResponseId: String? = null
+		var toolInputs: List<ResponseInputItem> = toInputItems(session)
+
+		repeat(AiProvider.MAX_TOOL_CALLS) {
+			val params = ResponseCreateParams.builder()
+				.model(model.apiName)
+				.parallelToolCalls(false)
+
+			session.effectiveSystemPrompt()?.let(params::instructions)
+			applyReasoning(model, params)
+			enabledTools.map(::openAiTool).forEach(params::addTool)
+
+			if (previousResponseId == null) {
+				params.inputOfResponse(toolInputs)
+			} else {
+				params.previousResponseId(previousResponseId)
+				params.inputOfResponse(toolInputs)
+			}
+
+			val response = client.responses().create(params.build())
+			previousResponseId = response.id()
+			val toolCalls = response.output()
+				.filter(ResponseOutputItem::isFunctionCall)
+				.map(ResponseOutputItem::asFunctionCall)
+
+			if (toolCalls.isEmpty()) {
+				onActionChange("generating")
+				return extractText(response)
+			}
+
+			toolInputs = toolCalls.mapNotNull { toolCall ->
+				onActionChange("using ${toolCall.name()}")
+				val playerId = session.boundPlayerId
+				val result = ToolManager.execute(
+					playerId = playerId,
+					name = toolCall.name(),
+					arguments = parseJsonArguments(toolCall.arguments()),
+				) ?: return@mapNotNull null
+
+				ResponseInputItem.ofFunctionCallOutput(
+					ResponseInputItem.FunctionCallOutput.builder()
+						.callId(toolCall.callId())
+						.outputAsJson(result.asResponseMap())
+						.build()
+				)
+			}
+		}
+
+		return toolCallLimitReachedMessage()
 	}
 
 	private fun streamResponse(
@@ -175,6 +244,59 @@ object OpenAiProvider : AiProvider {
 				.effort(ReasoningEffort.of(effort.lowercase()))
 				.build()
 		)
+	}
+
+	private fun extractText(response: Response): String {
+		val text = response.output()
+			.filter(ResponseOutputItem::isMessage)
+			.flatMap { outputItem -> outputItem.asMessage().content() }
+			.filter { content -> content.isOutputText() }
+			.joinToString(separator = "") { content -> content.asOutputText().text() }
+
+		return text.ifBlank { "OpenAI returned an empty response." }
+	}
+
+	private fun openAiTool(tool: AiTool): OpenAiFunctionTool {
+		return OpenAiFunctionTool.builder()
+			.name(tool.name)
+			.description(tool.description)
+			.strict(true)
+			.parameters(
+				OpenAiFunctionTool.Parameters.builder()
+					.putAdditionalProperty("type", OpenAiJsonValue.from("object"))
+					.putAdditionalProperty("properties", OpenAiJsonValue.from(openAiProperties(tool)))
+					.putAdditionalProperty("required", OpenAiJsonValue.from(tool.parameters.map(AiTool.Parameter::name)))
+					.putAdditionalProperty("additionalProperties", OpenAiJsonValue.from(false))
+					.build()
+			)
+			.build()
+	}
+
+	private fun openAiProperties(tool: AiTool): Map<String, Any> {
+		return tool.parameters.associate { parameter ->
+			parameter.name to schemaProperty(parameter)
+		}
+	}
+
+	private fun schemaProperty(parameter: AiTool.Parameter): Map<String, Any> {
+		return linkedMapOf(
+			"type" to when (parameter.type) {
+				AiTool.Type.STRING -> "string"
+				AiTool.Type.UUID -> "string"
+			},
+			"description" to parameter.description,
+		)
+	}
+
+	private fun parseJsonArguments(argumentsJson: String): Map<String, String> {
+		val jsonObject = com.google.gson.JsonParser.parseString(argumentsJson).asJsonObject
+		return jsonObject.entrySet().associate { (key, value) ->
+			key to when {
+				value.isJsonNull -> ""
+				value.isJsonPrimitive -> value.asJsonPrimitive.asString
+				else -> value.toString()
+			}
+		}
 	}
 
 	private fun client() = OpenAIOkHttpClient.builder()

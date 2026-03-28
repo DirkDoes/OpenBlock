@@ -1,4 +1,4 @@
-package me.wanttobee.mineai.ai
+package me.wanttobee.mineai.ai.context
 
 object KnowledgeBase {
 	const val MINEAI_IDENTITY =
@@ -10,5 +10,6 @@ object KnowledgeBase {
 			"Use colors sparingly by default. Most text should stay default (which is just white).\n" +
 			"Only color text to highlight small important things or when the user asks for richer formatting.\n" +
 			"Standard defaults: usernames should usually be §b aqua, and numbers should usually be §6 gold., and Minecraft commands should usually be §e yellow.\n" +
-			"After a highlighted segment, reset back to white with §f or fully reset with §r."
+			"After a highlighted segment, reset back to white with §f or fully reset with §r.\n" +
+			"When tools are available, use them for live player or server facts instead of guessing."
 }

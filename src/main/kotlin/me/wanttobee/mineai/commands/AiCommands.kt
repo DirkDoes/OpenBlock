@@ -1,6 +1,8 @@
 package me.wanttobee.mineai.commands
 
 import com.mojang.brigadier.LiteralMessage
+import com.mojang.brigadier.builder.ArgumentBuilder
+import com.mojang.brigadier.builder.LiteralArgumentBuilder
 import com.mojang.brigadier.CommandDispatcher
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.suggestion.SuggestionsBuilder
@@ -9,6 +11,7 @@ import me.wanttobee.mineai.ai.AiService
 import me.wanttobee.mineai.ai.Providers
 import me.wanttobee.mineai.ai.sessions.AiTargetManager
 import me.wanttobee.mineai.ai.sessions.Session
+import me.wanttobee.mineai.ai.tools.AiTool
 import me.wanttobee.mineai.util.MinecraftTextFormatter
 import net.minecraft.ChatFormatting
 import net.minecraft.commands.CommandSourceStack
@@ -23,6 +26,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 object AiCommands {
+	private val gson = com.google.gson.GsonBuilder().setPrettyPrinting().create()
 	private val executor: ExecutorService = Executors.newFixedThreadPool(3) { runnable ->
 		Thread(runnable, "mineai-ai").apply {
 			isDaemon = true
@@ -32,6 +36,7 @@ object AiCommands {
 	fun register(dispatcher: CommandDispatcher<CommandSourceStack>) {
 		registerAlias(dispatcher, "ai")
 		registerAlias(dispatcher, "mineai")
+		registerAiToolCommand(dispatcher)
 	}
 
 	private fun registerAlias(dispatcher: CommandDispatcher<CommandSourceStack>, alias: String) {
@@ -104,6 +109,38 @@ object AiCommands {
 													1
 												}
 										)
+								)
+						)
+				)
+				.then(
+					MinecraftCommands.literal("tools")
+						.executes { context ->
+							showTools(context.source)
+							1
+						}
+						.then(
+							MinecraftCommands.argument("name", StringArgumentType.word())
+								.suggests(::suggestToolNames)
+								.executes { context ->
+									showTool(
+										context.source,
+										StringArgumentType.getString(context, "name"),
+									)
+									1
+								}
+								.then(
+									MinecraftCommands.argument("state", StringArgumentType.word())
+										.suggests(::suggestToolStates)
+										.executes { context ->
+											val player = context.source.player ?: return@executes 0
+											setToolState(
+												context.source,
+												player.uuid,
+												StringArgumentType.getString(context, "name"),
+												StringArgumentType.getString(context, "state"),
+											)
+											1
+										}
 								)
 						)
 				)
@@ -219,6 +256,62 @@ object AiCommands {
 		)
 	}
 
+	private fun registerAiToolCommand(dispatcher: CommandDispatcher<CommandSourceStack>) {
+		val root = MinecraftCommands.literal("aitool")
+			.requires(Commands::isOpPlayer)
+
+		for (tool in AiService.allTools()) {
+			root.then(buildAiToolCommand(tool))
+		}
+
+		dispatcher.register(root)
+	}
+
+	private fun buildAiToolCommand(tool: AiTool): LiteralArgumentBuilder<CommandSourceStack> {
+		val root = MinecraftCommands.literal(tool.name)
+		if (tool.parameters.isEmpty()) {
+			return root.executes { context ->
+				runManualTool(context.source, tool, emptyMap())
+				1
+			}
+		}
+
+		attachToolArguments(root, tool, 0)
+		return root
+	}
+
+	private fun attachToolArguments(
+		parent: ArgumentBuilder<CommandSourceStack, *>,
+		tool: AiTool,
+		parameterIndex: Int,
+	) {
+		if (parameterIndex >= tool.parameters.size) {
+			return
+		}
+
+		val parameter = tool.parameters[parameterIndex]
+		val argumentType = when {
+			parameterIndex == tool.parameters.lastIndex && parameter.type == AiTool.Type.STRING ->
+				StringArgumentType.greedyString()
+			else -> StringArgumentType.word()
+		}
+
+		val argument = MinecraftCommands.argument(parameter.name, argumentType)
+			.suggests { context, builder ->
+				suggestToolArgument(tool, parameterIndex, context, builder)
+			}
+
+		if (parameterIndex == tool.parameters.lastIndex) {
+			argument.executes { context ->
+				runManualTool(context.source, tool, toolArguments(tool, context))
+				1
+			}
+		}
+
+		parent.then(argument)
+		attachToolArguments(argument, tool, parameterIndex + 1)
+	}
+
 	private fun showCurrentTarget(source: CommandSourceStack) {
 		val player = source.player ?: return
 		val target = AiService.currentTarget(player.uuid)
@@ -255,6 +348,95 @@ object AiCommands {
 			},
 			false
 		)
+	}
+
+	private fun showTools(source: CommandSourceStack) {
+		val player = source.player ?: return
+		source.sendSuccess(
+			{ Component.literal("AI tools:").withStyle(ChatFormatting.YELLOW) },
+			false
+		)
+
+		for (tool in AiService.allTools()) {
+			val enabled = AiService.isToolEnabled(player.uuid, tool.name)
+			source.sendSuccess(
+				{
+					Component.literal("${tool.name}: ").withStyle(ChatFormatting.GRAY)
+						.append(
+							Component.literal(if (enabled) "on" else "off")
+								.withStyle(if (enabled) ChatFormatting.GREEN else ChatFormatting.RED)
+						)
+				},
+				false
+			)
+		}
+	}
+
+	private fun showTool(source: CommandSourceStack, toolName: String) {
+		val player = source.player ?: return
+		val tool = AiService.allTools().firstOrNull { it.name.equals(toolName, ignoreCase = true) }
+		if (tool == null) {
+			source.sendFailure(Component.literal("Unknown tool: $toolName").withStyle(ChatFormatting.RED))
+			return
+		}
+
+		val enabled = AiService.isToolEnabled(player.uuid, tool.name)
+		source.sendSuccess(
+			{
+				Component.literal("${tool.name}: ").withStyle(ChatFormatting.YELLOW)
+					.append(
+						Component.literal(if (enabled) "on" else "off")
+							.withStyle(if (enabled) ChatFormatting.GREEN else ChatFormatting.RED)
+					)
+					.append(Component.literal(" - ${tool.description}").withStyle(ChatFormatting.WHITE))
+			},
+			false
+		)
+	}
+
+	private fun setToolState(source: CommandSourceStack, playerId: UUID, toolName: String, state: String) {
+		val enabled = when (state.lowercase()) {
+			"on" -> true
+			"off" -> false
+			else -> {
+				source.sendFailure(Component.literal("State must be on or off.").withStyle(ChatFormatting.RED))
+				return
+			}
+		}
+
+		if (!AiService.setToolEnabled(playerId, toolName, enabled)) {
+			source.sendFailure(Component.literal("Unknown tool: $toolName").withStyle(ChatFormatting.RED))
+			return
+		}
+
+		source.sendSuccess(
+			{
+				Component.literal("${toolName}: ").withStyle(ChatFormatting.YELLOW)
+					.append(Component.literal(if (enabled) "on" else "off").withStyle(if (enabled) ChatFormatting.GREEN else ChatFormatting.RED))
+			},
+			false
+		)
+	}
+
+	private fun runManualTool(source: CommandSourceStack, tool: AiTool, arguments: Map<String, String>) {
+		val playerId = source.player?.uuid
+		val result = AiService.executeTool(playerId, tool.name, arguments)
+		if (result == null) {
+			source.sendFailure(Component.literal("Unknown tool: ${tool.name}").withStyle(ChatFormatting.RED))
+			return
+		}
+
+		val color = if (result.isError) ChatFormatting.RED else ChatFormatting.WHITE
+		source.sendSuccess(
+			{ Component.literal("${tool.name}:").withStyle(ChatFormatting.YELLOW) },
+			false
+		)
+		for (line in gson.toJson(result.asResponseMap()).lines()) {
+			source.sendSuccess(
+				{ Component.literal(line).withStyle(color) },
+				false
+			)
+		}
 	}
 
 	private fun formatProviderStatus(
@@ -314,6 +496,48 @@ object AiCommands {
 			}
 		}
 		return builder.buildFuture()
+	}
+
+	private fun suggestToolNames(
+		context: com.mojang.brigadier.context.CommandContext<CommandSourceStack>,
+		builder: SuggestionsBuilder,
+	): CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> {
+		return SharedSuggestionProvider.suggest(AiService.allTools().map(AiTool::name), builder)
+	}
+
+	private fun suggestToolStates(
+		context: com.mojang.brigadier.context.CommandContext<CommandSourceStack>,
+		builder: SuggestionsBuilder,
+	): CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> {
+		return SharedSuggestionProvider.suggest(listOf("on", "off"), builder)
+	}
+
+	private fun suggestToolArgument(
+		tool: AiTool,
+		parameterIndex: Int,
+		context: com.mojang.brigadier.context.CommandContext<CommandSourceStack>,
+		builder: SuggestionsBuilder,
+	): CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> {
+		val playerId = context.source.player?.uuid
+		for (suggestion in tool.suggestions(playerId, parameterIndex, toolArguments(tool, context, parameterIndex))) {
+			val description = suggestion.description
+			if (description == null) {
+				builder.suggest(suggestion.value)
+			} else {
+				builder.suggest(suggestion.value, LiteralMessage(description))
+			}
+		}
+		return builder.buildFuture()
+	}
+
+	private fun toolArguments(
+		tool: AiTool,
+		context: com.mojang.brigadier.context.CommandContext<CommandSourceStack>,
+		uptoExclusive: Int = tool.parameters.size,
+	): Map<String, String> {
+		return tool.parameters.take(uptoExclusive).associate { parameter ->
+			parameter.name to StringArgumentType.getString(context, parameter.name)
+		}
 	}
 
 	private fun formatReasoningSuffix(target: AiTargetManager.AiTarget): Component {

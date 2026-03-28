@@ -1,14 +1,23 @@
 package me.wanttobee.mineai.ai.providers
 
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.anthropic.core.JsonValue as AnthropicJsonValue
+import com.anthropic.models.messages.ContentBlock
+import com.anthropic.models.messages.ContentBlockParam
+import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.MessageParam
 import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.anthropic.models.messages.ThinkingConfigDisabled
 import com.anthropic.models.messages.ThinkingConfigEnabled
 import com.anthropic.models.messages.ThinkingConfigParam
+import com.anthropic.models.messages.Tool as AnthropicTool
+import com.anthropic.models.messages.ToolChoiceAuto
+import com.anthropic.models.messages.ToolResultBlockParam
 import me.wanttobee.mineai.ai.sessions.Session
 import me.wanttobee.mineai.ai.sessions.AiModel
+import me.wanttobee.mineai.ai.tools.AiTool
+import me.wanttobee.mineai.ai.tools.ToolManager
 import me.wanttobee.mineai.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
 object AnthropicProvider : AiProvider {
@@ -83,33 +92,38 @@ object AnthropicProvider : AiProvider {
 	override fun generate(model: AiModel, session: Session, onActionChange: (String) -> Unit): Boolean {
 		return try {
 			val responseText = withClient { client ->
-				val maxTokens = maxTokensFor(model)
-				val builder = MessageCreateParams.builder()
-					.model(model.apiName)
-					.maxTokens(maxTokens)
+				val enabledTools = enabledTools(session)
+				if (enabledTools.isEmpty()) {
+					val maxTokens = maxTokensFor(model)
+					val builder = MessageCreateParams.builder()
+						.model(model.apiName)
+						.maxTokens(maxTokens)
 
-				session.effectiveSystemPrompt()?.let(builder::system)
-				applyThinking(model, builder)
+					session.effectiveSystemPrompt()?.let(builder::system)
+					applyThinking(model, builder)
 
-				for (message in session.messages()) {
-					when (message.type) {
-						Session.Message.Type.USER -> builder.addMessage(
-							MessageParam.builder()
-								.role(MessageParam.Role.USER)
-								.content(message.combinedContent())
-								.build()
-						)
-						Session.Message.Type.ASSISTANT -> builder.addMessage(
-							MessageParam.builder()
-								.role(MessageParam.Role.ASSISTANT)
-								.content(message.combinedContent())
-								.build()
-						)
-						Session.Message.Type.ERROR -> Unit
+					for (message in session.messages()) {
+						when (message.type) {
+							Session.Message.Type.USER -> builder.addMessage(
+								MessageParam.builder()
+									.role(MessageParam.Role.USER)
+									.content(message.combinedContent())
+									.build()
+							)
+							Session.Message.Type.ASSISTANT -> builder.addMessage(
+								MessageParam.builder()
+									.role(MessageParam.Role.ASSISTANT)
+									.content(message.combinedContent())
+									.build()
+							)
+							Session.Message.Type.ERROR -> Unit
+						}
 					}
-				}
 
-				streamResponse(client, builder.build(), model, onActionChange)
+					streamResponse(client, builder.build(), model, onActionChange)
+				} else {
+					generateWithTools(client, model, session, enabledTools, onActionChange)
+				}
 			}
 
 			session.addAssistantMessage(responseText)
@@ -118,6 +132,76 @@ object AnthropicProvider : AiProvider {
 			session.addErrorMessage(exception.message ?: "Unknown error")
 			false
 		}
+	}
+
+	private fun generateWithTools(
+		client: com.anthropic.client.AnthropicClient,
+		model: AiModel,
+		session: Session,
+		enabledTools: List<me.wanttobee.mineai.ai.tools.AiTool>,
+		onActionChange: (String) -> Unit,
+	): String {
+		val conversation = session.messages().mapNotNull { message ->
+			when (message.type) {
+				Session.Message.Type.USER -> MessageParam.builder()
+					.role(MessageParam.Role.USER)
+					.content(message.combinedContent())
+					.build()
+				Session.Message.Type.ASSISTANT -> MessageParam.builder()
+					.role(MessageParam.Role.ASSISTANT)
+					.content(message.combinedContent())
+					.build()
+				Session.Message.Type.ERROR -> null
+			}
+		}.toMutableList()
+
+		repeat(AiProvider.MAX_TOOL_CALLS) {
+			val builder = MessageCreateParams.builder()
+				.model(model.apiName)
+				.maxTokens(maxTokensFor(model))
+				.toolChoice(ToolChoiceAuto.builder().build())
+
+			session.effectiveSystemPrompt()?.let(builder::system)
+			applyThinking(model, builder)
+			enabledTools.map(::anthropicTool).forEach(builder::addTool)
+			conversation.forEach(builder::addMessage)
+
+			val response = client.messages().create(builder.build())
+			val toolUses = response.content()
+				.filter(ContentBlock::isToolUse)
+				.map(ContentBlock::asToolUse)
+
+			if (toolUses.isEmpty()) {
+				onActionChange("generating")
+				return extractText(response)
+			}
+
+			conversation += response.toParam()
+
+			val toolResults = toolUses.map { toolUse ->
+				onActionChange("using ${toolUse.name()}")
+				val result = ToolManager.execute(
+					playerId = session.boundPlayerId,
+					name = toolUse.name(),
+					arguments = parseJsonArguments(toolUse._input().toString()),
+				)
+
+				ContentBlockParam.ofToolResult(
+					ToolResultBlockParam.builder()
+						.toolUseId(toolUse.id())
+						.content((result ?: missingToolResult(toolUse.name())).asResponseMapAsString())
+						.isError(result?.isError ?: true)
+						.build()
+				)
+			}
+
+			conversation += MessageParam.builder()
+				.role(MessageParam.Role.USER)
+				.contentOfBlockParams(toolResults)
+				.build()
+		}
+
+		return toolCallLimitReachedMessage()
 	}
 
 	private fun maxTokensFor(model: AiModel): Long {
@@ -192,6 +276,59 @@ object AnthropicProvider : AiProvider {
 				ThinkingConfigAdaptive.builder().build()
 			)
 		)
+	}
+
+	private fun extractText(message: Message): String {
+		val text = message.content()
+			.filter(ContentBlock::isText)
+			.joinToString(separator = "") { block -> block.asText().text() }
+		return text.ifBlank { "Claude returned an empty response." }
+	}
+
+	private fun anthropicTool(tool: AiTool): AnthropicTool {
+		val properties = AnthropicTool.InputSchema.Properties.builder().apply {
+			for (parameter in tool.parameters) {
+				putAdditionalProperty(parameter.name, AnthropicJsonValue.from(schemaProperty(parameter)))
+			}
+		}.build()
+
+		return AnthropicTool.builder()
+			.name(tool.name)
+			.description(tool.description)
+			.strict(true)
+			.inputSchema(
+				AnthropicTool.InputSchema.builder()
+					.properties(properties)
+					.required(tool.parameters.map(AiTool.Parameter::name))
+					.additionalProperties(mapOf("additionalProperties" to AnthropicJsonValue.from(false)))
+					.build()
+			)
+			.build()
+	}
+
+	private fun schemaProperty(parameter: AiTool.Parameter): Map<String, Any> {
+		return linkedMapOf(
+			"type" to when (parameter.type) {
+				AiTool.Type.STRING -> "string"
+				AiTool.Type.UUID -> "string"
+			},
+			"description" to parameter.description,
+		)
+	}
+
+	private fun parseJsonArguments(argumentsJson: String): Map<String, String> {
+		val jsonObject = com.google.gson.JsonParser.parseString(argumentsJson).asJsonObject
+		return jsonObject.entrySet().associate { (key, value) ->
+			key to when {
+				value.isJsonNull -> ""
+				value.isJsonPrimitive -> value.asJsonPrimitive.asString
+				else -> value.toString()
+			}
+		}
+	}
+
+	private fun AiTool.ExecutionResult.asResponseMapAsString(): String {
+		return com.google.gson.Gson().toJson(asResponseMap())
 	}
 
 	private fun client() = AnthropicOkHttpClient.builder()

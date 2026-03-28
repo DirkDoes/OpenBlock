@@ -1,6 +1,6 @@
 package me.wanttobee.mineai.ai.sessions
 
-import me.wanttobee.mineai.ai.tools.PlayerContextCapturer
+import me.wanttobee.mineai.ai.context.PlayerContextCapturer
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 
