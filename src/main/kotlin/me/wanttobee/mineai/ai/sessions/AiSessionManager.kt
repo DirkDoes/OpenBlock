@@ -1,4 +1,4 @@
-package me.wanttobee.mineai.ai
+package me.wanttobee.mineai.ai.sessions
 
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap

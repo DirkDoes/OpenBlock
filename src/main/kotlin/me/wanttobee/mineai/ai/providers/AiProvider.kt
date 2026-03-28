@@ -1,7 +1,7 @@
 package me.wanttobee.mineai.ai.providers
 
-import me.wanttobee.mineai.ai.AiModel
-import me.wanttobee.mineai.ai.Session
+import me.wanttobee.mineai.ai.sessions.AiModel
+import me.wanttobee.mineai.ai.sessions.Session
 import net.minecraft.ChatFormatting
 
 interface AiProvider {

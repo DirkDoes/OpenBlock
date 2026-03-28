@@ -4,9 +4,9 @@ import com.openai.client.okhttp.OpenAIOkHttpClient
 import com.openai.models.responses.EasyInputMessage
 import com.openai.models.responses.ResponseCreateParams
 import com.openai.models.responses.ResponseInputItem
-import me.wanttobee.mineai.ai.AiModel
-import me.wanttobee.mineai.EnvironmentVariables
-import me.wanttobee.mineai.ai.Session
+import me.wanttobee.mineai.ai.sessions.Session
+import me.wanttobee.mineai.ai.sessions.AiModel
+import me.wanttobee.mineai.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
 import java.util.stream.Collectors
 

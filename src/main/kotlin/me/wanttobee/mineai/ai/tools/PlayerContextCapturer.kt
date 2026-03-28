@@ -1,4 +1,4 @@
-package me.wanttobee.mineai.ai
+package me.wanttobee.mineai.ai.tools
 
 import net.minecraft.server.MinecraftServer
 import net.minecraft.world.level.GameType

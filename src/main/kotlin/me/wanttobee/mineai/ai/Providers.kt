@@ -1,5 +1,6 @@
 package me.wanttobee.mineai.ai
 
+import me.wanttobee.mineai.ai.sessions.AiModel
 import me.wanttobee.mineai.ai.providers.AiProvider
 import me.wanttobee.mineai.ai.providers.AnthropicProvider
 import me.wanttobee.mineai.ai.providers.GoogleAiProvider

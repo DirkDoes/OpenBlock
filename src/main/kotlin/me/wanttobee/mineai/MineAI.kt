@@ -1,6 +1,6 @@
 package me.wanttobee.mineai
 
-import me.wanttobee.mineai.ai.PlayerContextCapturer
+import me.wanttobee.mineai.ai.tools.PlayerContextCapturer
 import me.wanttobee.mineai.commands.Commands
 import net.fabricmc.api.DedicatedServerModInitializer
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents

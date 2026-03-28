@@ -3,9 +3,9 @@ package me.wanttobee.mineai.ai.providers
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.MessageParam
-import me.wanttobee.mineai.ai.AiModel
-import me.wanttobee.mineai.EnvironmentVariables
-import me.wanttobee.mineai.ai.Session
+import me.wanttobee.mineai.ai.sessions.Session
+import me.wanttobee.mineai.ai.sessions.AiModel
+import me.wanttobee.mineai.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
 import java.util.stream.Collectors
 

@@ -3,7 +3,7 @@ package me.wanttobee.mineai.commands
 import com.mojang.brigadier.CommandDispatcher
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.suggestion.SuggestionsBuilder
-import me.wanttobee.mineai.EnvironmentVariables
+import me.wanttobee.mineai.util.EnvironmentVariables
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
 import net.minecraft.ChatFormatting
 import net.minecraft.commands.CommandSourceStack

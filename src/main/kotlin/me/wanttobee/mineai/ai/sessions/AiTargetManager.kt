@@ -1,5 +1,6 @@
-package me.wanttobee.mineai.ai
+package me.wanttobee.mineai.ai.sessions
 
+import me.wanttobee.mineai.ai.Providers
 import me.wanttobee.mineai.ai.providers.AiProvider
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap

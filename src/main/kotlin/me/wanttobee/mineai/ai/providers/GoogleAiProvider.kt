@@ -4,9 +4,9 @@ import com.google.genai.Client
 import com.google.genai.types.Content
 import com.google.genai.types.GenerateContentConfig
 import com.google.genai.types.Part
-import me.wanttobee.mineai.ai.AiModel
-import me.wanttobee.mineai.EnvironmentVariables
-import me.wanttobee.mineai.ai.Session
+import me.wanttobee.mineai.ai.sessions.Session
+import me.wanttobee.mineai.ai.sessions.AiModel
+import me.wanttobee.mineai.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
 
 object GoogleAiProvider : AiProvider {

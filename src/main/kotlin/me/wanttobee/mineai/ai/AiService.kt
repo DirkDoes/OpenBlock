@@ -1,6 +1,9 @@
 package me.wanttobee.mineai.ai
 
 import me.wanttobee.mineai.ai.providers.AiProvider
+import me.wanttobee.mineai.ai.sessions.AiSessionManager
+import me.wanttobee.mineai.ai.sessions.AiTargetManager
+import me.wanttobee.mineai.ai.sessions.Session
 import java.util.UUID
 
 object AiService {

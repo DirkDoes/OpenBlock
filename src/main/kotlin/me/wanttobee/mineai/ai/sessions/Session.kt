@@ -1,5 +1,6 @@
-package me.wanttobee.mineai.ai
+package me.wanttobee.mineai.ai.sessions
 
+import me.wanttobee.mineai.ai.tools.PlayerContextCapturer
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -20,13 +21,13 @@ class Session(
 		val username = PlayerContextCapturer.capture(boundPlayerId)?.username
 		val bindingPrompt =
 			"Session binding: this conversation is with player UUID $boundPlayerId" +
-				(username?.let { " (username: $it)" } ?: "") + ".\n" +
+				(username?.let { " (username: $it)" } ?: "") +
+				".\n" +
 				"User messages may begin with live player context in the form " +
 				"[game mode - pos(x, y, z)/fac(yaw, pitch) - dimension].\n" +
 				"If the player is in survival or adventure mode, the prefix may also include " +
 				"hp(...), xp(...), and hunger(...).\n" +
-				"Treat that prefix as authoritative context about the player speaking to you, " +
-				" don't directly respond to it as this is automatically generated."
+				"Treat that prefix as authoritative context about the player speaking to you."
 
 		return listOf(basePrompt, bindingPrompt)
 			.filter { it.isNotBlank() }

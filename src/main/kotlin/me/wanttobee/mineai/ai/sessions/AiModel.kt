@@ -1,4 +1,4 @@
-package me.wanttobee.mineai.ai
+package me.wanttobee.mineai.ai.sessions
 
 data class AiModel(
 	val apiName: String,
