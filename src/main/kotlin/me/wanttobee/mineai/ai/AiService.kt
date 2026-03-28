@@ -20,6 +20,8 @@ object AiService {
 
 	fun currentTarget(playerId: UUID): AiTargetManager.AiTarget? = AiTargetManager.currentTarget(playerId)
 
+	fun currentSession(playerId: UUID): Session? = AiSessionManager.getSession(playerId)
+
 	fun selectTarget(playerId: UUID, providerName: String, modelId: String?): AiTargetManager.AiTarget? =
 		AiTargetManager.selectTarget(playerId, providerName, modelId)
 

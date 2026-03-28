@@ -4,6 +4,7 @@ import com.mojang.brigadier.LiteralMessage
 import com.mojang.brigadier.CommandDispatcher
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.suggestion.SuggestionsBuilder
+import me.wanttobee.mineai.ai.AiActionBarManager
 import me.wanttobee.mineai.ai.AiService
 import me.wanttobee.mineai.ai.Providers
 import me.wanttobee.mineai.ai.sessions.AiTargetManager
@@ -148,12 +149,14 @@ object AiCommands {
 				Component.literal("you: ").withStyle(ChatFormatting.GRAY)
 					.append(Component.literal(message).withStyle(ChatFormatting.WHITE))
 			)
+			AiActionBarManager.start(server, playerId, target, "generating")
 		}
 
 		executor.submit {
 			val result = AiService.sendMessage(playerId, message)
 			server.execute {
 				val player = server.playerList.getPlayer(playerId) ?: return@execute
+				AiActionBarManager.stop(server, playerId)
 				val currentResult = result ?: return@execute
 				player.sendSystemMessage(formatSessionMessage(currentResult.first, currentResult.second))
 			}
@@ -257,4 +260,5 @@ object AiCommands {
 		}
 		return builder.buildFuture()
 	}
+
 }

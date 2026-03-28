@@ -12,6 +12,8 @@ interface AiProvider {
 	val defaultModel: String
 	val models: List<AiModel>
 	val chatColor: ChatFormatting
+	val progressColorA: Int
+	val progressColorB: Int
 
 	fun ping()
 	fun generateResponse(model: AiModel, session: Session): Boolean

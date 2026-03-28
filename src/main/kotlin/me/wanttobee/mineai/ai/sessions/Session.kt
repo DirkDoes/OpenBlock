@@ -35,11 +35,14 @@ class Session(
 	}
 
 	fun addUserMessage(content: String) {
-		val prefixedContent = boundPlayerId
+		val hiddenContent = boundPlayerId
 			?.let(PlayerContextCapturer::capture)
 			?.let { context -> "${context.promptPrefix()} $content" }
-			?: content
-		messages += Message(Message.Type.USER, prefixedContent)
+		messages += Message(
+			type = Message.Type.USER,
+			content = content,
+			hiddenContent = hiddenContent,
+		)
 	}
 
 	fun addAssistantMessage(content: String) {
@@ -53,7 +56,12 @@ class Session(
 	data class Message(
 		val type: Type,
 		val content: String,
+		val hiddenContent: String? = null,
 	) {
+		fun combinedContent(): String {
+			return hiddenContent?.takeIf { it.isNotBlank() }?.let { "$it\n$content" } ?: content
+		}
+
 		enum class Type {
 			USER,
 			ASSISTANT,

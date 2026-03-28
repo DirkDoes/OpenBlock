@@ -24,6 +24,8 @@ object AnthropicProvider : AiProvider {
 		AiModel("claude-sonnet-4-20250514", "Sonnet 4"),
 	)
 	override val chatColor = ChatFormatting.GOLD
+	override val progressColorA = 0xFF3B30
+	override val progressColorB = 0xFFD400
 
 	override fun ping() {
 		withClient { client ->
@@ -45,13 +47,13 @@ object AnthropicProvider : AiProvider {
 						Session.Message.Type.USER -> builder.addMessage(
 							MessageParam.builder()
 								.role(MessageParam.Role.USER)
-								.content(message.content)
+								.content(message.combinedContent())
 								.build()
 						)
 						Session.Message.Type.ASSISTANT -> builder.addMessage(
 							MessageParam.builder()
 								.role(MessageParam.Role.ASSISTANT)
-								.content(message.content)
+								.content(message.combinedContent())
 								.build()
 						)
 						Session.Message.Type.ERROR -> Unit

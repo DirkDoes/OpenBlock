@@ -26,6 +26,8 @@ object GoogleAiProvider : AiProvider {
 		AiModel("gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite")
 	)
 	override val chatColor = ChatFormatting.LIGHT_PURPLE
+	override val progressColorA = 0xFF4DFF
+	override val progressColorB = 0x00E5FF
 
 	override fun ping() {
 		withClient { client ->
@@ -82,11 +84,11 @@ object GoogleAiProvider : AiProvider {
 			when (message.type) {
 				Session.Message.Type.USER -> Content.builder()
 					.role("user")
-					.parts(Part.builder().text(message.content).build())
+					.parts(Part.builder().text(message.combinedContent()).build())
 					.build()
 				Session.Message.Type.ASSISTANT -> Content.builder()
 					.role("model")
-					.parts(Part.builder().text(message.content).build())
+					.parts(Part.builder().text(message.combinedContent()).build())
 					.build()
 				Session.Message.Type.ERROR -> null
 			}

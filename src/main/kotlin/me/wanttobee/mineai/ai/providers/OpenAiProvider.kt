@@ -34,6 +34,8 @@ object OpenAiProvider : AiProvider {
 		AiModel("o4-mini-2025-04-16", "o4-mini"),
 	)
 	override val chatColor = ChatFormatting.AQUA
+	override val progressColorA = 0x00FFFF
+	override val progressColorB = 0x7FFF00
 
 	override fun ping() {
 		withClient { client ->
@@ -95,13 +97,13 @@ object OpenAiProvider : AiProvider {
 				Session.Message.Type.USER -> ResponseInputItem.ofEasyInputMessage(
 					EasyInputMessage.builder()
 						.role(EasyInputMessage.Role.USER)
-						.content(message.content)
+						.content(message.combinedContent())
 						.build()
 				)
 				Session.Message.Type.ASSISTANT -> ResponseInputItem.ofEasyInputMessage(
 					EasyInputMessage.builder()
 						.role(EasyInputMessage.Role.ASSISTANT)
-						.content(message.content)
+						.content(message.combinedContent())
 						.phase(EasyInputMessage.Phase.FINAL_ANSWER)
 						.build()
 				)
