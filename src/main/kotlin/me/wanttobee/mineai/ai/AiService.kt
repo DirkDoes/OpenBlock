@@ -22,10 +22,18 @@ object AiService {
 
 	fun currentSession(playerId: UUID): Session? = AiSessionManager.getSession(playerId)
 
-	fun selectTarget(playerId: UUID, providerName: String, modelId: String?): AiTargetManager.AiTarget? =
-		AiTargetManager.selectTarget(playerId, providerName, modelId)
+	fun selectTarget(
+		playerId: UUID,
+		providerName: String,
+		modelId: String?,
+		reasoningValue: String? = null,
+	): AiTargetManager.AiTarget? = AiTargetManager.selectTarget(playerId, providerName, modelId, reasoningValue)
 
-	fun sendMessage(playerId: UUID, message: String): Pair<AiTargetManager.AiTarget, Session.Message>? {
+	fun sendMessage(
+		playerId: UUID,
+		message: String,
+		onActionChange: (String) -> Unit = {},
+	): Pair<AiTargetManager.AiTarget, Session.Message>? {
 		val target = currentTarget(playerId) ?: return null
 		val session = AiSessionManager.getSession(playerId) ?: AiSessionManager.createSession(
 			playerId = playerId,
@@ -34,7 +42,7 @@ object AiService {
 		)
 		session.addUserMessage(message)
 		val succeeded = try {
-			target.provider.generateResponse(target.model, session)
+			target.provider.generate(target.model, session, onActionChange)
 		} catch (exception: Exception) {
 			session.addErrorMessage(exception.message ?: "Unknown error")
 			false

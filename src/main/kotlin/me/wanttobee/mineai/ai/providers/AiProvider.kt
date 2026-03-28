@@ -16,5 +16,27 @@ interface AiProvider {
 	val progressColorB: Int
 
 	fun ping()
-	fun generateResponse(model: AiModel, session: Session): Boolean
+
+	fun startingAction(model: AiModel): String {
+		return if (model.usesReasoning()) "thinking" else "generating"
+	}
+
+	fun applyReasoning(model: AiModel, value: String?): AiModel? {
+		return model
+	}
+
+	fun reasoningSuggestions(model: AiModel): List<ReasoningSuggestion> {
+		return emptyList()
+	}
+
+	fun describeReasoning(model: AiModel): String? {
+		return null
+	}
+
+	fun generate(model: AiModel, session: Session, onActionChange: (String) -> Unit = {}): Boolean
+
+	data class ReasoningSuggestion(
+		val value: String,
+		val description: String? = null,
+	)
 }

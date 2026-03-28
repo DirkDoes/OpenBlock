@@ -58,11 +58,17 @@ object AiActionBarManager {
 	}
 
 	fun stop(server: MinecraftServer, playerId: UUID) {
+		stop(server, playerId, 0L)
+	}
+
+	fun stop(server: MinecraftServer, playerId: UUID, delayMillis: Long) {
 		tasks.remove(playerId)?.future?.cancel(false)
-		server.execute {
-			val player = server.playerList.getPlayer(playerId) ?: return@execute
-			player.connection.send(ClientboundSetActionBarTextPacket(Component.empty()))
-		}
+		scheduler.schedule({
+			server.execute {
+				val player = server.playerList.getPlayer(playerId) ?: return@execute
+				player.connection.send(ClientboundSetActionBarTextPacket(Component.empty()))
+			}
+		}, delayMillis.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
 	}
 
 	private fun sendFrame(server: MinecraftServer, playerId: UUID, state: ActionBarState) {

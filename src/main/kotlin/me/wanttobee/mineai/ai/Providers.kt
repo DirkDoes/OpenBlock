@@ -21,6 +21,17 @@ object Providers {
 		return getProviderByName(providerName)?.models?.sortedBy { model -> model.displayName } ?: emptyList()
 	}
 
+	fun resolveModel(providerName: String, modelName: String): AiModel? {
+		val provider = getProviderByName(providerName) ?: return null
+		return getModel(providerName, modelName) ?: AiModel(modelName, modelName)
+	}
+
+	fun reasoningSuggestions(providerName: String, modelName: String): List<AiProvider.ReasoningSuggestion> {
+		val provider = getProviderByName(providerName) ?: return emptyList()
+		val model = resolveModel(providerName, modelName) ?: return emptyList()
+		return provider.reasoningSuggestions(model)
+	}
+
 	fun getModel(providerName: String, modelName: String): AiModel? {
 		return getProviderByName(providerName)
 			?.models

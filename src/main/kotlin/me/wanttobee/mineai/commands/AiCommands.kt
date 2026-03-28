@@ -77,7 +77,7 @@ object AiCommands {
 									1
 								}
 								.then(
-									MinecraftCommands.argument("model", StringArgumentType.greedyString())
+									MinecraftCommands.argument("model", StringArgumentType.word())
 										.suggests(::suggestProviderModels)
 										.executes { context ->
 											val player = context.source.player ?: return@executes 0
@@ -85,10 +85,25 @@ object AiCommands {
 												context.source,
 												player.uuid,
 												StringArgumentType.getString(context, "provider"),
-												StringArgumentType.getString(context, "model")
+												StringArgumentType.getString(context, "model"),
 											)
 											1
 										}
+										.then(
+											MinecraftCommands.argument("reasoning", StringArgumentType.word())
+												.suggests(::suggestReasoningValues)
+												.executes { context ->
+													val player = context.source.player ?: return@executes 0
+													selectTarget(
+														context.source,
+														player.uuid,
+														StringArgumentType.getString(context, "provider"),
+														StringArgumentType.getString(context, "model"),
+														StringArgumentType.getString(context, "reasoning"),
+													)
+													1
+												}
+										)
 								)
 						)
 				)
@@ -149,23 +164,32 @@ object AiCommands {
 				Component.literal("you: ").withStyle(ChatFormatting.GRAY)
 					.append(Component.literal(message).withStyle(ChatFormatting.WHITE))
 			)
-			AiActionBarManager.start(server, playerId, target, "generating")
+			AiActionBarManager.start(server, playerId, target, target.provider.startingAction(target.model))
 		}
 
 		executor.submit {
-			val result = AiService.sendMessage(playerId, message)
+			val result = AiService.sendMessage(playerId, message) { action ->
+				server.execute {
+					AiActionBarManager.updateAction(server, playerId, action)
+				}
+			}
 			server.execute {
 				val player = server.playerList.getPlayer(playerId) ?: return@execute
-				AiActionBarManager.stop(server, playerId)
+				AiActionBarManager.stop(server, playerId, 700L)
 				val currentResult = result ?: return@execute
 				player.sendSystemMessage(formatSessionMessage(currentResult.first, currentResult.second))
 			}
 		}
 	}
 
-	private fun selectTarget(source: CommandSourceStack, playerId: UUID, providerName: String, modelName: String?) {
-		val target = AiService.selectTarget(playerId, providerName, modelName)
-		if (target == null) {
+	private fun selectTarget(
+		source: CommandSourceStack,
+		playerId: UUID,
+		providerName: String,
+		modelName: String?,
+		reasoningValue: String? = null,
+	) {
+		if (Providers.getProviderByName(providerName) == null) {
 			source.sendFailure(
 				Component.literal("Unknown AI provider: $providerName")
 					.withStyle(ChatFormatting.RED)
@@ -173,13 +197,26 @@ object AiCommands {
 			return
 		}
 
-			source.sendSuccess(
+		val target = AiService.selectTarget(playerId, providerName, modelName, reasoningValue)
+		if (target == null) {
+			source.sendFailure(
+				Component.literal(
+					if (reasoningValue.isNullOrBlank()) "Unable to select that AI target."
+					else "That reasoning option is not supported for the selected model."
+				)
+					.withStyle(ChatFormatting.RED)
+			)
+			return
+		}
+
+		source.sendSuccess(
 			{
 				Component.literal("Target set to ").withStyle(ChatFormatting.YELLOW)
 					.append(Component.literal(target.model.displayName).withStyle(target.provider.chatColor))
+					.append(formatReasoningSuffix(target))
 			},
-				false
-			)
+			false
+		)
 	}
 
 	private fun showCurrentTarget(source: CommandSourceStack) {
@@ -199,6 +236,7 @@ object AiCommands {
 					.append(Component.literal(target.provider.displayName).withStyle(target.provider.chatColor))
 					.append(Component.literal(" / ").withStyle(ChatFormatting.DARK_GRAY))
 					.append(Component.literal(target.model.displayName).withStyle(ChatFormatting.WHITE))
+					.append(formatReasoningSuffix(target))
 			},
 			false
 		)
@@ -259,6 +297,29 @@ object AiCommands {
 			builder.suggest(model.displaySlug, LiteralMessage(model.displayName))
 		}
 		return builder.buildFuture()
+	}
+
+	private fun suggestReasoningValues(
+		context: com.mojang.brigadier.context.CommandContext<CommandSourceStack>,
+		builder: SuggestionsBuilder,
+	): CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> {
+		val providerName = StringArgumentType.getString(context, "provider")
+		val modelName = StringArgumentType.getString(context, "model")
+		for (suggestion in Providers.reasoningSuggestions(providerName, modelName)) {
+			val description = suggestion.description
+			if (description == null) {
+				builder.suggest(suggestion.value)
+			} else {
+				builder.suggest(suggestion.value, LiteralMessage(description))
+			}
+		}
+		return builder.buildFuture()
+	}
+
+	private fun formatReasoningSuffix(target: AiTargetManager.AiTarget): Component {
+		val reasoningDescription = target.provider.describeReasoning(target.model) ?: return Component.empty()
+		return Component.literal(" / ").withStyle(ChatFormatting.DARK_GRAY)
+			.append(Component.literal(reasoningDescription).withStyle(ChatFormatting.GRAY))
 	}
 
 }

@@ -11,17 +11,21 @@ object AiTargetManager {
 
 	fun currentTarget(playerId: UUID): AiTarget? = selectedTargets[playerId]
 
-	fun selectTarget(playerId: UUID, providerName: String, modelId: String?): AiTarget? {
+	fun selectTarget(playerId: UUID, providerName: String, modelId: String?, reasoningValue: String? = null): AiTarget? {
 		val provider = Providers.getProviderByName(providerName) ?: return null
 		val playerTargets = lastSelectedTargetsFor(playerId)
 		val target = modelId?.trim().takeUnless { it.isNullOrEmpty() }?.let { requestedModel ->
-			val knownModel = Providers.getModel(providerName, requestedModel)
-			if (knownModel != null) {
-				AiTarget(provider, knownModel)
+			val baseModel = Providers.resolveModel(providerName, requestedModel) ?: AiModel(requestedModel, requestedModel)
+			val selectedModel = provider.applyReasoning(baseModel, reasoningValue) ?: return null
+			AiTarget(provider, selectedModel)
+		} ?: playerTargets[provider.name]?.let { existingTarget ->
+			if (reasoningValue.isNullOrBlank()) {
+				existingTarget
 			} else {
-				AiTarget(provider, AiModel(requestedModel, requestedModel))
+				val selectedModel = provider.applyReasoning(existingTarget.model, reasoningValue) ?: return null
+				AiTarget(provider, selectedModel)
 			}
-		} ?: playerTargets[provider.name]
+		}
 			?: defaultTargetFor(provider.name, provider)
 
 		playerTargets[provider.name] = target
