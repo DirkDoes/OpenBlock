@@ -46,4 +46,9 @@ object AiTargetManager {
 			AiTarget(provider, AiModel(provider.defaultModel, provider.defaultModel))
 		}
 	}
+
+	data class AiTarget(
+		val provider: AiProvider,
+		val model: AiModel,
+	)
 }

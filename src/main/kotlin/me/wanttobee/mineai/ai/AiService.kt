@@ -15,12 +15,12 @@ object AiService {
 		}
 	}
 
-	fun currentTarget(playerId: UUID): AiTarget? = AiTargetManager.currentTarget(playerId)
+	fun currentTarget(playerId: UUID): AiTargetManager.AiTarget? = AiTargetManager.currentTarget(playerId)
 
-	fun selectTarget(playerId: UUID, providerName: String, modelId: String?): AiTarget? =
+	fun selectTarget(playerId: UUID, providerName: String, modelId: String?): AiTargetManager.AiTarget? =
 		AiTargetManager.selectTarget(playerId, providerName, modelId)
 
-	fun sendMessage(playerId: UUID, message: String): Pair<AiTarget, Session.Message>? {
+	fun sendMessage(playerId: UUID, message: String): Pair<AiTargetManager.AiTarget, Session.Message>? {
 		val target = currentTarget(playerId) ?: return null
 		val session = AiSessionManager.getOrCreateSession(playerId)
 		session.addUserMessage(message)

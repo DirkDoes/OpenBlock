@@ -5,8 +5,8 @@ import com.mojang.brigadier.CommandDispatcher
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.suggestion.SuggestionsBuilder
 import me.wanttobee.mineai.ai.AiService
+import me.wanttobee.mineai.ai.AiTargetManager
 import me.wanttobee.mineai.ai.Session
-import me.wanttobee.mineai.ai.AiTarget
 import me.wanttobee.mineai.ai.Providers
 import net.minecraft.ChatFormatting
 import net.minecraft.commands.CommandSourceStack
@@ -225,7 +225,7 @@ object AiCommands {
 			)
 	}
 
-	private fun formatSessionMessage(target: AiTarget, message: Session.Message): Component {
+	private fun formatSessionMessage(target: AiTargetManager.AiTarget, message: Session.Message): Component {
 		return when (message.type) {
 			Session.Message.Type.ASSISTANT -> Component.literal("${target.model.displayName}: ")
 				.withStyle(target.provider.chatColor)
