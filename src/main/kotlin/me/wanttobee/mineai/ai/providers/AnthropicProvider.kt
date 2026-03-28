@@ -38,6 +38,8 @@ object AnthropicProvider : AiProvider {
 					.model(model.apiName)
 					.maxTokens(512)
 
+				session.effectiveSystemPrompt()?.let(builder::system)
+
 				for (message in session.messages()) {
 					when (message.type) {
 						Session.Message.Type.USER -> builder.addMessage(

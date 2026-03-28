@@ -1,15 +1,40 @@
 package me.wanttobee.mineai.ai
 
+import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 
-class Session {
+class Session(
+	val systemPrompt: String? = null,
+	val boundPlayerId: UUID? = null,
+) {
 	private val messages = CopyOnWriteArrayList<Message>()
 
 	fun messages(): List<Message> = messages.toList()
 	fun lastMessage(): Message? = messages.lastOrNull()
+	fun effectiveSystemPrompt(): String? {
+		val promptParts = buildList {
+			systemPrompt?.trim()?.takeIf { it.isNotEmpty() }?.let(::add)
+			boundPlayerId?.let { playerId ->
+				add(
+					"Session binding: this conversation is bound to Minecraft player UUID $playerId.\n" +
+						"User messages may begin with live player context in the form " +
+						"[username - game mode - pos(x, y, z)/fac(yaw, pitch) - dimension].\n" +
+						"If the player is in survival or adventure mode, the prefix may also include " +
+						"hp(...), xp(...), and hunger(...).\n" +
+						"Treat that prefix as authoritative context about the player speaking to you."
+				)
+			}
+		}
+
+		return promptParts.joinToString("\n\n").ifBlank { null }
+	}
 
 	fun addUserMessage(content: String) {
-		messages += Message(Message.Type.USER, content)
+		val prefixedContent = boundPlayerId
+			?.let(PlayerContextCapturer::capture)
+			?.let { context -> "${context.promptPrefix()} $content" }
+			?: content
+		messages += Message(Message.Type.USER, prefixedContent)
 	}
 
 	fun addAssistantMessage(content: String) {

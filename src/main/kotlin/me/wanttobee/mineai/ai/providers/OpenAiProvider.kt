@@ -44,12 +44,13 @@ object OpenAiProvider : AiProvider {
 	override fun generateResponse(model: AiModel, session: Session): Boolean {
 		return try {
 			val responseText = withClient { client ->
-				val response = client.responses().create(
-					ResponseCreateParams.builder()
-						.model(model.apiName)
-						.inputOfResponse(toInputItems(session))
-						.build()
-				)
+				val params = ResponseCreateParams.builder()
+					.model(model.apiName)
+					.inputOfResponse(toInputItems(session))
+
+				session.effectiveSystemPrompt()?.let(params::instructions)
+
+				val response = client.responses().create(params.build())
 
 				val text = response.output().stream()
 					.flatMap { item -> item.message().stream() }

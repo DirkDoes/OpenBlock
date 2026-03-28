@@ -6,8 +6,8 @@ import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.suggestion.SuggestionsBuilder
 import me.wanttobee.mineai.ai.AiService
 import me.wanttobee.mineai.ai.AiTargetManager
-import me.wanttobee.mineai.ai.Session
 import me.wanttobee.mineai.ai.Providers
+import me.wanttobee.mineai.ai.Session
 import net.minecraft.ChatFormatting
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.commands.SharedSuggestionProvider

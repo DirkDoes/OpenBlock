@@ -2,6 +2,7 @@ package me.wanttobee.mineai.ai.providers
 
 import com.google.genai.Client
 import com.google.genai.types.Content
+import com.google.genai.types.GenerateContentConfig
 import com.google.genai.types.Part
 import me.wanttobee.mineai.ai.AiModel
 import me.wanttobee.mineai.EnvironmentVariables
@@ -35,7 +36,17 @@ object GoogleAiProvider : AiProvider {
 	override fun generateResponse(model: AiModel, session: Session): Boolean {
 		return try {
 			val responseText = withClient { client ->
-				val response = client.models.generateContent(model.apiName, toContents(session), null)
+				val config = GenerateContentConfig.builder().apply {
+					session.effectiveSystemPrompt()?.let { prompt ->
+						systemInstruction(
+							Content.builder()
+								.parts(Part.builder().text(prompt).build())
+								.build()
+						)
+					}
+				}.build()
+
+				val response = client.models.generateContent(model.apiName, toContents(session), config)
 				response.text()?.ifBlank { "Google returned an empty response." }
 					?: "Google returned an empty response."
 			}

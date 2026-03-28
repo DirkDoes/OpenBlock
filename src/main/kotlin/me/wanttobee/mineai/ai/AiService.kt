@@ -22,7 +22,11 @@ object AiService {
 
 	fun sendMessage(playerId: UUID, message: String): Pair<AiTargetManager.AiTarget, Session.Message>? {
 		val target = currentTarget(playerId) ?: return null
-		val session = AiSessionManager.getOrCreateSession(playerId)
+		val session = AiSessionManager.getSession(playerId) ?: AiSessionManager.createSession(
+			playerId = playerId,
+			systemPrompt = null,
+			bindPlayerId = true,
+		)
 		session.addUserMessage(message)
 		val succeeded = try {
 			target.provider.generateResponse(target.model, session)

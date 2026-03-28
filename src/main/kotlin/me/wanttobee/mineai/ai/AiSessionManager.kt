@@ -6,10 +6,19 @@ import java.util.concurrent.ConcurrentHashMap
 object AiSessionManager {
 	private val sessions = ConcurrentHashMap<UUID, Session>()
 
-	fun currentSession(playerId: UUID): Session? = sessions[playerId]
+	fun getSession(playerId: UUID): Session? = sessions[playerId]
 
-	fun getOrCreateSession(playerId: UUID): Session {
-		return sessions.computeIfAbsent(playerId) { Session() }
+	fun createSession(
+		playerId: UUID,
+		systemPrompt: String? = null,
+		bindPlayerId: Boolean = true,
+	): Session {
+		val session = Session(
+			systemPrompt = systemPrompt,
+			boundPlayerId = if (bindPlayerId) playerId else null,
+		)
+		sessions[playerId] = session
+		return session
 	}
 
 	fun clearSession(playerId: UUID): Boolean {
