@@ -120,7 +120,12 @@ object GoogleAiProvider : AiProvider {
 		}
 	}
 
-	override fun generate(model: AiModel, session: Session, onActionChange: (String) -> Unit): Boolean {
+	override fun generate(
+		model: AiModel,
+		session: Session,
+		onActionChange: (String) -> Unit,
+		onMessageAdded: (Session.Message) -> Unit,
+	): Boolean {
 		return try {
 			val responseText = withClient { client ->
 				val enabledTools = enabledTools(session)
@@ -137,14 +142,14 @@ object GoogleAiProvider : AiProvider {
 					}.build()
 					streamResponse(client, model.apiName, toContents(session), config, model, onActionChange)
 				} else {
-					generateWithTools(client, model, session, enabledTools, onActionChange)
+					generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
 				}
 			}
 
 			session.addAssistantMessage(responseText)
 			true
 		} catch (exception: Exception) {
-			session.addErrorMessage(exception.message ?: "Unknown error")
+			session.addErrorMessage(formatException(exception))
 			false
 		}
 	}
@@ -155,6 +160,7 @@ object GoogleAiProvider : AiProvider {
 		session: Session,
 		enabledTools: List<me.wanttobee.mineai.ai.tools.AiTool>,
 		onActionChange: (String) -> Unit,
+		onMessageAdded: (Session.Message) -> Unit,
 	): String {
 		val conversation = toContents(session).toMutableList()
 
@@ -192,20 +198,25 @@ object GoogleAiProvider : AiProvider {
 
 			val functionResponses = functionCalls.map { functionCall ->
 				onActionChange("using ${functionCall.name().orElse("tool")}")
-				val result = ToolManager.execute(
+				val invocation = ToolManager.invoke(
 					playerId = session.boundPlayerId,
 					name = functionCall.name().orElse(""),
 					arguments = functionCall.args()
 						.orElse(emptyMap())
 						.mapValues { (_, value) -> value?.toString().orEmpty() },
-				) ?: missingToolResult(functionCall.name().orElse(""))
+				)
+				invocation?.conversationMessage?.let { content ->
+					session.addToolMessage(content)
+					onMessageAdded(session.lastMessage()!!)
+				}
+				val result = invocation?.execution ?: missingToolResult(functionCall.name().orElse(""))
 
 				Part.builder()
 					.functionResponse(
 						FunctionResponse.builder()
 							.name(functionCall.name().orElse(""))
 							.id(functionCall.id().orElse(null))
-							.response(result.asResponseMap())
+							.response(googleFunctionResponsePayload(result))
 							.build()
 					)
 					.build()
@@ -318,6 +329,19 @@ object GoogleAiProvider : AiProvider {
 			.build()
 	}
 
+	private fun googleFunctionResponsePayload(result: AiTool.ExecutionResult): Map<String, Any?> {
+		return if (result.isError) {
+			mapOf("error" to result.payload)
+		} else {
+			mapOf("result" to result.payload)
+		}
+	}
+
+	private fun formatException(exception: Exception): String {
+		return exception.message?.takeIf { it.isNotBlank() }
+			?: exception.toString()
+	}
+
 	private fun client() = Client.builder()
 		.apiKey(requiredApiKey())
 		.build()
@@ -347,6 +371,7 @@ object GoogleAiProvider : AiProvider {
 					.role("model")
 					.parts(Part.builder().text(message.combinedContent()).build())
 					.build()
+				Session.Message.Type.TOOL,
 				Session.Message.Type.ERROR -> null
 			}
 		}

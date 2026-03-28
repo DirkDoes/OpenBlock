@@ -9,6 +9,8 @@ object ToolManager {
 	private val tools = listOf(
 		GetOnlinePlayersTool,
 		GetPlayerDetailsTool,
+		GetCommandDocumentationTool,
+		ExecuteCommandTool,
 	)
 
 	fun allTools(): List<AiTool> = tools
@@ -34,8 +36,12 @@ object ToolManager {
 		return true
 	}
 
-	fun execute(playerId: UUID?, name: String, arguments: Map<String, String>): AiTool.ExecutionResult? {
+	fun invoke(playerId: UUID?, name: String, arguments: Map<String, String>): AiTool.InvocationResult? {
 		val tool = getTool(name) ?: return null
 		return tool.invoke(playerId, arguments)
+	}
+
+	fun execute(playerId: UUID?, name: String, arguments: Map<String, String>): AiTool.ExecutionResult? {
+		return invoke(playerId, name, arguments)?.execution
 	}
 }

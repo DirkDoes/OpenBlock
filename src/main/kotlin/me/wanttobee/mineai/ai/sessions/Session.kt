@@ -49,6 +49,10 @@ class Session(
 		messages += Message(Message.Type.ASSISTANT, content)
 	}
 
+	fun addToolMessage(content: String) {
+		messages += Message(Message.Type.TOOL, content)
+	}
+
 	fun addErrorMessage(content: String) {
 		messages += Message(Message.Type.ERROR, content)
 	}
@@ -64,6 +68,7 @@ class Session(
 
 		enum class Type {
 			USER,
+			TOOL,
 			ASSISTANT,
 			ERROR,
 		}

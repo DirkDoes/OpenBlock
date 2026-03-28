@@ -8,16 +8,25 @@ interface AiTool {
 	val enabledByDefault: Boolean
 	val parameters: List<Parameter>
 
-	fun invoke(playerId: UUID?, rawArguments: Map<String, String>): ExecutionResult {
+	fun invoke(playerId: UUID?, rawArguments: Map<String, String>): InvocationResult {
 		val validatedArguments = ToolArguments.validate(parameters, rawArguments)
-			?: return ExecutionResult(
-				payload = mapOf("message" to ToolArguments.validationError(parameters, rawArguments)),
-				isError = true,
+			?: return InvocationResult(
+				execution = ExecutionResult(
+					payload = mapOf("message" to ToolArguments.validationError(parameters, rawArguments)),
+					isError = true,
+				),
 			)
-		return execute(playerId, validatedArguments)
+		return InvocationResult(
+			execution = execute(playerId, validatedArguments),
+			conversationMessage = conversationMessage(playerId, validatedArguments),
+		)
 	}
 
 	fun execute(playerId: UUID?, arguments: ToolArguments): ExecutionResult
+
+	fun conversationMessage(playerId: UUID?, arguments: ToolArguments): String? {
+		return null
+	}
 
 	fun suggestions(playerId: UUID?, parameterIndex: Int, arguments: Map<String, String>): List<Suggestion> {
 		return emptyList()
@@ -47,6 +56,11 @@ interface AiTool {
 			}
 		}
 	}
+
+	data class InvocationResult(
+		val execution: ExecutionResult,
+		val conversationMessage: String? = null,
+	)
 
 	enum class Type {
 		STRING,

@@ -113,7 +113,12 @@ object OpenAiProvider : AiProvider {
 		return reasoning.value?.let { "reasoning $it" } ?: "reasoning on"
 	}
 
-	override fun generate(model: AiModel, session: Session, onActionChange: (String) -> Unit): Boolean {
+	override fun generate(
+		model: AiModel,
+		session: Session,
+		onActionChange: (String) -> Unit,
+		onMessageAdded: (Session.Message) -> Unit,
+	): Boolean {
 		return try {
 			val responseText = withClient { client ->
 				val enabledTools = enabledTools(session)
@@ -126,7 +131,7 @@ object OpenAiProvider : AiProvider {
 					applyReasoning(model, params)
 					streamResponse(client, params.build(), model, onActionChange)
 				} else {
-					generateWithTools(client, model, session, enabledTools, onActionChange)
+					generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
 				}
 			}
 
@@ -144,6 +149,7 @@ object OpenAiProvider : AiProvider {
 		session: Session,
 		enabledTools: List<me.wanttobee.mineai.ai.tools.AiTool>,
 		onActionChange: (String) -> Unit,
+		onMessageAdded: (Session.Message) -> Unit,
 	): String {
 		var previousResponseId: String? = null
 		var toolInputs: List<ResponseInputItem> = toInputItems(session)
@@ -178,11 +184,16 @@ object OpenAiProvider : AiProvider {
 			toolInputs = toolCalls.mapNotNull { toolCall ->
 				onActionChange("using ${toolCall.name()}")
 				val playerId = session.boundPlayerId
-				val result = ToolManager.execute(
+				val invocation = ToolManager.invoke(
 					playerId = playerId,
 					name = toolCall.name(),
 					arguments = parseJsonArguments(toolCall.arguments()),
 				) ?: return@mapNotNull null
+				invocation.conversationMessage?.let { content ->
+					session.addToolMessage(content)
+					onMessageAdded(session.lastMessage()!!)
+				}
+				val result = invocation.execution
 
 				ResponseInputItem.ofFunctionCallOutput(
 					ResponseInputItem.FunctionCallOutput.builder()
@@ -333,6 +344,7 @@ object OpenAiProvider : AiProvider {
 						.phase(EasyInputMessage.Phase.FINAL_ANSWER)
 						.build()
 				)
+				Session.Message.Type.TOOL,
 				Session.Message.Type.ERROR -> null
 			}
 		}

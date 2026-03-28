@@ -36,7 +36,8 @@ object AiService {
 		playerId: UUID,
 		message: String,
 		onActionChange: (String) -> Unit = {},
-	): Pair<AiTargetManager.AiTarget, Session.Message>? {
+		onMessageAdded: (Session.Message) -> Unit = {},
+	): Pair<AiTargetManager.AiTarget, List<Session.Message>>? {
 		val target = currentTarget(playerId) ?: return null
 		val session = AiSessionManager.getSession(playerId) ?: AiSessionManager.createSession(
 			playerId = playerId,
@@ -44,20 +45,23 @@ object AiService {
 			bindPlayerId = true,
 		)
 		session.addUserMessage(message)
+		val messageCountBeforeGenerate = session.messages().size
 		val succeeded = try {
-			target.provider.generate(target.model, session, onActionChange)
+			target.provider.generate(target.model, session, onActionChange, onMessageAdded)
 		} catch (exception: Exception) {
 			session.addErrorMessage(exception.message ?: "Unknown error")
 			false
 		}
-		val lastMessage = session.lastMessage()
-		return if (succeeded && lastMessage != null && lastMessage.type != Session.Message.Type.USER) {
-			target to lastMessage
-		} else if (lastMessage != null && lastMessage.type != Session.Message.Type.USER) {
-			target to lastMessage
+		val newMessages = session.messages()
+			.drop(messageCountBeforeGenerate)
+			.filter { it.type != Session.Message.Type.USER && it.type != Session.Message.Type.TOOL }
+		return if (succeeded && newMessages.isNotEmpty()) {
+			target to newMessages
+		} else if (newMessages.isNotEmpty()) {
+			target to newMessages
 		} else {
 			session.addErrorMessage("No response message was appended to the session.")
-			target to session.lastMessage()!!
+			target to listOfNotNull(session.lastMessage())
 		}
 	}
 

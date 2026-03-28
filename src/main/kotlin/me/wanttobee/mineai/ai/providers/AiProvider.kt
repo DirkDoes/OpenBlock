@@ -50,7 +50,12 @@ interface AiProvider {
 		return "$displayName exceeded the tool call limit."
 	}
 
-	fun generate(model: AiModel, session: Session, onActionChange: (String) -> Unit = {}): Boolean
+	fun generate(
+		model: AiModel,
+		session: Session,
+		onActionChange: (String) -> Unit = {},
+		onMessageAdded: (Session.Message) -> Unit = {},
+	): Boolean
 
 	data class ReasoningSuggestion(
 		val value: String,

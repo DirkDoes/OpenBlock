@@ -89,7 +89,12 @@ object AnthropicProvider : AiProvider {
 		return reasoning.budgetTokens?.let { "thinking $it" } ?: "thinking on"
 	}
 
-	override fun generate(model: AiModel, session: Session, onActionChange: (String) -> Unit): Boolean {
+	override fun generate(
+		model: AiModel,
+		session: Session,
+		onActionChange: (String) -> Unit,
+		onMessageAdded: (Session.Message) -> Unit,
+	): Boolean {
 		return try {
 			val responseText = withClient { client ->
 				val enabledTools = enabledTools(session)
@@ -116,13 +121,14 @@ object AnthropicProvider : AiProvider {
 									.content(message.combinedContent())
 									.build()
 							)
+							Session.Message.Type.TOOL,
 							Session.Message.Type.ERROR -> Unit
 						}
 					}
 
 					streamResponse(client, builder.build(), model, onActionChange)
 				} else {
-					generateWithTools(client, model, session, enabledTools, onActionChange)
+					generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
 				}
 			}
 
@@ -140,6 +146,7 @@ object AnthropicProvider : AiProvider {
 		session: Session,
 		enabledTools: List<me.wanttobee.mineai.ai.tools.AiTool>,
 		onActionChange: (String) -> Unit,
+		onMessageAdded: (Session.Message) -> Unit,
 	): String {
 		val conversation = session.messages().mapNotNull { message ->
 			when (message.type) {
@@ -151,6 +158,7 @@ object AnthropicProvider : AiProvider {
 					.role(MessageParam.Role.ASSISTANT)
 					.content(message.combinedContent())
 					.build()
+				Session.Message.Type.TOOL,
 				Session.Message.Type.ERROR -> null
 			}
 		}.toMutableList()
@@ -180,11 +188,16 @@ object AnthropicProvider : AiProvider {
 
 			val toolResults = toolUses.map { toolUse ->
 				onActionChange("using ${toolUse.name()}")
-				val result = ToolManager.execute(
+				val invocation = ToolManager.invoke(
 					playerId = session.boundPlayerId,
 					name = toolUse.name(),
-					arguments = parseJsonArguments(toolUse._input().toString()),
+					arguments = parseJsonArguments(toolUse._input()),
 				)
+				invocation?.conversationMessage?.let { content ->
+					session.addToolMessage(content)
+					onMessageAdded(session.lastMessage()!!)
+				}
+				val result = invocation?.execution
 
 				ContentBlockParam.ofToolResult(
 					ToolResultBlockParam.builder()
@@ -316,13 +329,20 @@ object AnthropicProvider : AiProvider {
 		)
 	}
 
-	private fun parseJsonArguments(argumentsJson: String): Map<String, String> {
-		val jsonObject = com.google.gson.JsonParser.parseString(argumentsJson).asJsonObject
-		return jsonObject.entrySet().associate { (key, value) ->
-			key to when {
-				value.isJsonNull -> ""
-				value.isJsonPrimitive -> value.asJsonPrimitive.asString
-				else -> value.toString()
+	private fun parseJsonArguments(argumentsJson: AnthropicJsonValue): Map<String, String> {
+		val jsonObject = argumentsJson.asObject().orElse(emptyMap())
+		return jsonObject.mapValues { (_, value) -> jsonValueToString(value) }
+	}
+
+	private fun jsonValueToString(value: AnthropicJsonValue): String {
+		return value.asString().orElseGet {
+			value.asNumber().map(Number::toString).orElseGet {
+				value.asBoolean().map(Boolean::toString).orElseGet {
+					when {
+						value.isNull() -> ""
+						else -> value.toString()
+					}
+				}
 			}
 		}
 	}

@@ -26,6 +26,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 object AiCommands {
+	private const val MESSAGE_DIVIDER = "------------------------------"
 	private val gson = com.google.gson.GsonBuilder().setPrettyPrinting().create()
 	private val executor: ExecutorService = Executors.newFixedThreadPool(3) { runnable ->
 		Thread(runnable, "mineai-ai").apply {
@@ -198,6 +199,9 @@ object AiCommands {
 		server.execute {
 			val player = server.playerList.getPlayer(playerId) ?: return@execute
 			player.sendSystemMessage(
+				Component.literal(MESSAGE_DIVIDER).withStyle(ChatFormatting.DARK_GRAY)
+			)
+			player.sendSystemMessage(
 				Component.literal("you: ").withStyle(ChatFormatting.GRAY)
 					.append(Component.literal(message).withStyle(ChatFormatting.WHITE))
 			)
@@ -205,16 +209,28 @@ object AiCommands {
 		}
 
 		executor.submit {
-			val result = AiService.sendMessage(playerId, message) { action ->
-				server.execute {
-					AiActionBarManager.updateAction(server, playerId, action)
+			val result = AiService.sendMessage(
+				playerId = playerId,
+				message = message,
+				onActionChange = { action ->
+					server.execute {
+						AiActionBarManager.updateAction(server, playerId, action)
+					}
+				},
+				onMessageAdded = { sessionMessage ->
+					server.execute {
+						val player = server.playerList.getPlayer(playerId) ?: return@execute
+						player.sendSystemMessage(formatSessionMessage(target, sessionMessage))
+					}
 				}
-			}
+			)
 			server.execute {
 				val player = server.playerList.getPlayer(playerId) ?: return@execute
 				AiActionBarManager.stop(server, playerId, 700L)
 				val currentResult = result ?: return@execute
-				player.sendSystemMessage(formatSessionMessage(currentResult.first, currentResult.second))
+				for (sessionMessage in currentResult.second) {
+					player.sendSystemMessage(formatSessionMessage(currentResult.first, sessionMessage))
+				}
 			}
 		}
 	}
@@ -455,6 +471,7 @@ object AiCommands {
 			Session.Message.Type.ASSISTANT -> Component.literal("${target.model.displayName}: ")
 				.withStyle(target.provider.chatColor)
 				.append(MinecraftTextFormatter.format(message.content, Style.EMPTY.withColor(ChatFormatting.WHITE)))
+			Session.Message.Type.TOOL -> Component.literal(message.content).withStyle(ChatFormatting.GRAY)
 			Session.Message.Type.ERROR -> Component.literal("${target.model.displayName} error: ")
 				.withStyle(ChatFormatting.RED)
 				.append(MinecraftTextFormatter.format(message.content, Style.EMPTY.withColor(ChatFormatting.WHITE)))
