@@ -1,8 +1,8 @@
 {
 	"schemaVersion": 1,
-	"id": "mineai",
+	"id": "openblock",
 	"version": "${version}",
-	"name": "MineAI",
+	"name": "OpenBlock",
 	"description": "This is an example description! Tell everyone what your mod is about!",
 	"authors": [
 		"Me!"
@@ -12,26 +12,26 @@
 		"sources": "https://github.com/FabricMC/fabric-example-mod"
 	},
 	"license": "CC0-1.0",
-	"icon": "assets/mineai/icon.png",
+	"icon": "assets/openblock/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"server": [
 			{
-				"value": "me.wanttobee.mineai.MineAI",
+				"value": "me.wanttobee.openblock.OpenBlock",
 				"adapter": "kotlin"
 			}
 		],
 		"fabric-datagen": [
 			{
-				"value": "me.wanttobee.mineai.MineAIDataGenerator",
+				"value": "me.wanttobee.openblock.OpenBlockDataGenerator",
 				"adapter": "kotlin"
 			}
 		]
 	},
 	"mixins": [
-		"mineai.mixins.json",
+		"openblock.mixins.json",
 		{
-			"config": "mineai.client.mixins.json",
+			"config": "openblock.client.mixins.json",
 			"environment": "client"
 		}
 	],
