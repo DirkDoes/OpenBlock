@@ -12,8 +12,8 @@ import com.openai.models.Reasoning
 import com.openai.models.ReasoningEffort
 import me.wanttobee.mineai.ai.sessions.Session
 import me.wanttobee.mineai.ai.sessions.AiModel
-import me.wanttobee.mineai.ai.tools.AiTool
-import me.wanttobee.mineai.ai.tools.ToolManager
+import me.wanttobee.mineai.ai.toolcalling.AiTool
+import me.wanttobee.mineai.ai.toolcalling.ToolManager
 import me.wanttobee.mineai.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
 import java.util.stream.Collectors
@@ -120,7 +120,7 @@ object OpenAiProvider : AiProvider {
 		onMessageAdded: (Session.Message) -> Unit,
 	): Boolean {
 		return try {
-			val responseText = withClient { client ->
+			val outcome = withClient { client ->
 				val enabledTools = enabledTools(session)
 				if (enabledTools.isEmpty()) {
 					val params = ResponseCreateParams.builder()
@@ -129,13 +129,16 @@ object OpenAiProvider : AiProvider {
 
 					session.effectiveSystemPrompt()?.let(params::instructions)
 					applyReasoning(model, params)
-					streamResponse(client, params.build(), model, onActionChange)
+					val response = client.responses().create(params.build())
+					val usage = openAiUsage(response)
+					session.recordProviderCall(name, model.apiName, usage, "assistant")
+					GenerationOutcome(extractText(response), usage)
 				} else {
 					generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
 				}
 			}
 
-			session.addAssistantMessage(responseText)
+			session.addAssistantMessage(outcome.text, outcome.usage)
 			true
 		} catch (exception: Exception) {
 			session.addErrorMessage(exception.message ?: "Unknown error")
@@ -147,10 +150,10 @@ object OpenAiProvider : AiProvider {
 		client: com.openai.client.OpenAIClient,
 		model: AiModel,
 		session: Session,
-		enabledTools: List<me.wanttobee.mineai.ai.tools.AiTool>,
+		enabledTools: List<me.wanttobee.mineai.ai.toolcalling.AiTool>,
 		onActionChange: (String) -> Unit,
 		onMessageAdded: (Session.Message) -> Unit,
-	): String {
+	): GenerationOutcome {
 		var previousResponseId: String? = null
 		var toolInputs: List<ResponseInputItem> = toInputItems(session)
 
@@ -171,6 +174,7 @@ object OpenAiProvider : AiProvider {
 			}
 
 			val response = client.responses().create(params.build())
+			val usage = openAiUsage(response)
 			previousResponseId = response.id()
 			val toolCalls = response.output()
 				.filter(ResponseOutputItem::isFunctionCall)
@@ -178,22 +182,26 @@ object OpenAiProvider : AiProvider {
 
 			if (toolCalls.isEmpty()) {
 				onActionChange("generating")
-				return extractText(response)
+				session.recordProviderCall(name, model.apiName, usage, "assistant")
+				return GenerationOutcome(extractText(response), usage)
 			}
+			session.recordProviderCall(name, model.apiName, usage, "tool_calls")
 
-			toolInputs = toolCalls.mapNotNull { toolCall ->
+			toolInputs = toolCalls.map { toolCall ->
 				onActionChange("using ${toolCall.name()}")
 				val playerId = session.boundPlayerId
+				val arguments = parseJsonArguments(toolCall.arguments())
 				val invocation = ToolManager.invoke(
 					playerId = playerId,
 					name = toolCall.name(),
-					arguments = parseJsonArguments(toolCall.arguments()),
-				) ?: return@mapNotNull null
-				invocation.conversationMessage?.let { content ->
+					arguments = arguments,
+				)
+				invocation?.conversationMessage?.let { content ->
 					session.addToolMessage(content)
 					onMessageAdded(session.lastMessage()!!)
 				}
-				val result = invocation.execution
+				val result = invocation?.execution ?: missingToolResult(toolCall.name())
+				session.recordToolInvocation(toolCall.name(), arguments, result, invocation?.conversationMessage)
 
 				ResponseInputItem.ofFunctionCallOutput(
 					ResponseInputItem.FunctionCallOutput.builder()
@@ -204,7 +212,7 @@ object OpenAiProvider : AiProvider {
 			}
 		}
 
-		return toolCallLimitReachedMessage()
+		return GenerationOutcome(toolCallLimitReachedMessage())
 	}
 
 	private fun streamResponse(
@@ -276,7 +284,7 @@ object OpenAiProvider : AiProvider {
 				OpenAiFunctionTool.Parameters.builder()
 					.putAdditionalProperty("type", OpenAiJsonValue.from("object"))
 					.putAdditionalProperty("properties", OpenAiJsonValue.from(openAiProperties(tool)))
-					.putAdditionalProperty("required", OpenAiJsonValue.from(tool.parameters.map(AiTool.Parameter::name)))
+					.putAdditionalProperty("required", OpenAiJsonValue.from(requiredParameters(tool)))
 					.putAdditionalProperty("additionalProperties", OpenAiJsonValue.from(false))
 					.build()
 			)
@@ -287,6 +295,10 @@ object OpenAiProvider : AiProvider {
 		return tool.parameters.associate { parameter ->
 			parameter.name to schemaProperty(parameter)
 		}
+	}
+
+	private fun requiredParameters(tool: AiTool): List<String> {
+		return tool.parameters.filter(AiTool.Parameter::required).map(AiTool.Parameter::name)
 	}
 
 	private fun schemaProperty(parameter: AiTool.Parameter): Map<String, Any> {
@@ -309,6 +321,26 @@ object OpenAiProvider : AiProvider {
 			}
 		}
 	}
+
+	private fun openAiUsage(response: Response): Session.TokenUsage? {
+		val usage = response.usage().orElse(null) ?: return null
+		return Session.TokenUsage(
+			inputTokens = usage._inputTokens().asKnown().orElse(null),
+			outputTokens = usage._outputTokens().asKnown().orElse(null),
+			totalTokens = usage._totalTokens().asKnown().orElse(null),
+			cachedInputTokens = usage._inputTokensDetails().asKnown().flatMap { details ->
+				details._cachedTokens().asKnown()
+			}.orElse(null),
+			reasoningTokens = usage._outputTokensDetails().asKnown().flatMap { details ->
+				details._reasoningTokens().asKnown()
+			}.orElse(null),
+		)
+	}
+
+	private data class GenerationOutcome(
+		val text: String,
+		val usage: Session.TokenUsage? = null,
+	)
 
 	private fun client() = OpenAIOkHttpClient.builder()
 		.apiKey(requiredApiKey())

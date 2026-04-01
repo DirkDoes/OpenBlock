@@ -18,10 +18,13 @@ object AiSessionManager {
 			boundPlayerId = if (bindPlayerId) playerId else null,
 		)
 		sessions[playerId] = session
+		SessionLogger.logSessionStarted(session)
 		return session
 	}
 
 	fun clearSession(playerId: UUID): Boolean {
-		return sessions.remove(playerId) != null
+		val removed = sessions.remove(playerId) ?: return false
+		SessionLogger.logSessionClosed(removed, "cleared")
+		return true
 	}
 }

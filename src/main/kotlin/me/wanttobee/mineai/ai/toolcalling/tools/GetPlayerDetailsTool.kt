@@ -1,6 +1,8 @@
-package me.wanttobee.mineai.ai.tools
+package me.wanttobee.mineai.ai.toolcalling.tools
 
 import me.wanttobee.mineai.ai.context.PlayerInspectionFormatter
+import me.wanttobee.mineai.ai.toolcalling.AiTool
+import me.wanttobee.mineai.ai.toolcalling.ToolArguments
 import java.util.UUID
 
 object GetPlayerDetailsTool : AiTool {

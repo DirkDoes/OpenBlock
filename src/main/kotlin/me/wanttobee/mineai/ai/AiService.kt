@@ -3,10 +3,15 @@ package me.wanttobee.mineai.ai
 import me.wanttobee.mineai.ai.context.KnowledgeBase
 import me.wanttobee.mineai.ai.providers.AiProvider
 import me.wanttobee.mineai.ai.sessions.AiSessionManager
+import me.wanttobee.mineai.ai.sessions.Sandbox
+import me.wanttobee.mineai.ai.sessions.SandboxManager
 import me.wanttobee.mineai.ai.sessions.AiTargetManager
 import me.wanttobee.mineai.ai.sessions.Session
-import me.wanttobee.mineai.ai.tools.AiTool
-import me.wanttobee.mineai.ai.tools.ToolManager
+import me.wanttobee.mineai.ai.toolcalling.AiTool
+import me.wanttobee.mineai.ai.toolcalling.ToolManager
+import net.minecraft.core.BlockPos
+import net.minecraft.resources.ResourceKey
+import net.minecraft.world.level.Level
 import java.util.UUID
 
 object AiService {
@@ -66,6 +71,17 @@ object AiService {
 	}
 
 	fun clearSession(playerId: UUID): Boolean = AiSessionManager.clearSession(playerId)
+
+	fun currentSandbox(playerId: UUID): Sandbox? = SandboxManager.getSandbox(playerId)
+
+	fun setSandbox(
+		playerId: UUID,
+		dimension: ResourceKey<Level>,
+		firstCorner: BlockPos,
+		secondCorner: BlockPos,
+	): Sandbox = SandboxManager.setSandbox(playerId, dimension, firstCorner, secondCorner)
+
+	fun clearSandbox(playerId: UUID): Sandbox? = SandboxManager.clearSandbox(playerId)
 
 	fun allTools(): List<AiTool> = ToolManager.allTools()
 

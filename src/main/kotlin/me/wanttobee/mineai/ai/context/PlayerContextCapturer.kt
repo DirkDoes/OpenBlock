@@ -1,12 +1,17 @@
 package me.wanttobee.mineai.ai.context
 
 import net.minecraft.server.MinecraftServer
+import net.minecraft.world.phys.BlockHitResult
+import net.minecraft.world.phys.HitResult
 import net.minecraft.world.level.GameType
 import net.minecraft.world.level.Level
+import net.minecraft.core.registries.BuiltInRegistries
 import java.util.Locale
 import java.util.UUID
 
 object PlayerContextCapturer {
+	private const val LOOK_BLOCK_DISTANCE = 7.0
+
 	@Volatile
 	private var server: MinecraftServer? = null
 
@@ -24,6 +29,21 @@ object PlayerContextCapturer {
 	fun capture(playerId: UUID): PlayerContext? {
 		val player = server?.playerList?.getPlayer(playerId) ?: return null
 		val gameType = player.gameMode.gameModeForPlayer
+		val lookingAt = when (val hitResult = player.pick(LOOK_BLOCK_DISTANCE, 0.0f, false)) {
+			is BlockHitResult -> if (hitResult.type == HitResult.Type.BLOCK) {
+				val position = hitResult.blockPos
+				val blockId = BuiltInRegistries.BLOCK.getKey(player.level().getBlockState(position).block).toString()
+				LookedAtBlock(
+					block = blockId,
+					positionX = position.x,
+					positionY = position.y,
+					positionZ = position.z,
+				)
+			} else {
+				null
+			}
+			else -> null
+		}
 
 		return PlayerContext(
 			username = player.scoreboardName,
@@ -47,6 +67,7 @@ object PlayerContextCapturer {
 			health = if (gameType == GameType.SURVIVAL || gameType == GameType.ADVENTURE) player.health else null,
 			experienceLevel = if (gameType == GameType.SURVIVAL || gameType == GameType.ADVENTURE) player.experienceLevel else null,
 			hunger = if (gameType == GameType.SURVIVAL || gameType == GameType.ADVENTURE) player.foodData.foodLevel else null,
+			lookingAt = lookingAt,
 		)
 	}
 
@@ -62,6 +83,7 @@ object PlayerContextCapturer {
 		val health: Float?,
 		val experienceLevel: Int?,
 		val hunger: Int?,
+		val lookingAt: LookedAtBlock?,
 	) {
 		fun promptPrefix(): String {
 			val parts = mutableListOf(
@@ -75,6 +97,9 @@ object PlayerContextCapturer {
 			}
 
 			parts += "pos(${formatNumber(positionX)}, ${formatNumber(positionY)}, ${formatNumber(positionZ)})/fac(${formatNumber(yaw.toDouble())}, ${formatNumber(pitch.toDouble())})"
+			parts += lookingAt?.let { lookedAt ->
+				"look(${lookedAt.block} at ${lookedAt.positionX}, ${lookedAt.positionY}, ${lookedAt.positionZ})"
+			} ?: "look(no block)"
 			parts += dimension
 
 			return "[${parts.joinToString(" - ")}]"
@@ -84,4 +109,11 @@ object PlayerContextCapturer {
 			return String.format(Locale.ROOT, "%.1f", value)
 		}
 	}
+
+	data class LookedAtBlock(
+		val block: String,
+		val positionX: Int,
+		val positionY: Int,
+		val positionZ: Int,
+	)
 }

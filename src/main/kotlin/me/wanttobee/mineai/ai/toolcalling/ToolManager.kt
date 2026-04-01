@@ -1,5 +1,13 @@
-package me.wanttobee.mineai.ai.tools
+package me.wanttobee.mineai.ai.toolcalling
 
+import me.wanttobee.mineai.ai.toolcalling.tools.ExecuteCommandTool
+import me.wanttobee.mineai.ai.toolcalling.tools.FillBlocksTool
+import me.wanttobee.mineai.ai.toolcalling.tools.GetBlockDetailsTool
+import me.wanttobee.mineai.ai.toolcalling.tools.GetBlocksTool
+import me.wanttobee.mineai.ai.toolcalling.tools.GetCommandDocumentationTool
+import me.wanttobee.mineai.ai.toolcalling.tools.GetOnlinePlayersTool
+import me.wanttobee.mineai.ai.toolcalling.tools.GetPlayerDetailsTool
+import me.wanttobee.mineai.ai.toolcalling.tools.PlaceBlockTool
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -9,7 +17,11 @@ object ToolManager {
 	private val tools = listOf(
 		GetOnlinePlayersTool,
 		GetPlayerDetailsTool,
+		GetBlockDetailsTool,
+		GetBlocksTool,
 		GetCommandDocumentationTool,
+		PlaceBlockTool,
+		FillBlocksTool,
 		ExecuteCommandTool,
 	)
 
@@ -17,7 +29,12 @@ object ToolManager {
 
 	fun toolNames(): List<String> = tools.map(AiTool::name)
 
-	fun getTool(name: String): AiTool? = tools.firstOrNull { it.name.equals(name, ignoreCase = true) }
+	fun getTool(name: String): AiTool? {
+		if (name.equals("get_block_area", ignoreCase = true)) {
+			return GetBlocksTool
+		}
+		return tools.firstOrNull { it.name.equals(name, ignoreCase = true) }
+	}
 
 	fun isEnabled(playerId: UUID?, name: String): Boolean {
 		val tool = getTool(name) ?: return false

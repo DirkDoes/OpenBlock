@@ -1,5 +1,8 @@
-package me.wanttobee.mineai.ai.tools
+package me.wanttobee.mineai.ai.toolcalling.tools
 
+import me.wanttobee.mineai.ai.toolcalling.AiTool
+import me.wanttobee.mineai.ai.toolcalling.CommandToolsSupport
+import me.wanttobee.mineai.ai.toolcalling.ToolArguments
 import java.util.UUID
 
 object GetCommandDocumentationTool : AiTool {
@@ -11,7 +14,7 @@ object GetCommandDocumentationTool : AiTool {
 	override val name = "get_command_documentation"
 	override val description =
 		"Returns live documentation for a whitelisted command from the current server command tree."
-	override val enabledByDefault = true
+	override val enabledByDefault = false
 	override val parameters = listOf(commandParameter)
 
 	override fun suggestions(

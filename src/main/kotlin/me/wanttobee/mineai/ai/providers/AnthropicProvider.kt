@@ -16,8 +16,8 @@ import com.anthropic.models.messages.ToolChoiceAuto
 import com.anthropic.models.messages.ToolResultBlockParam
 import me.wanttobee.mineai.ai.sessions.Session
 import me.wanttobee.mineai.ai.sessions.AiModel
-import me.wanttobee.mineai.ai.tools.AiTool
-import me.wanttobee.mineai.ai.tools.ToolManager
+import me.wanttobee.mineai.ai.toolcalling.AiTool
+import me.wanttobee.mineai.ai.toolcalling.ToolManager
 import me.wanttobee.mineai.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
 object AnthropicProvider : AiProvider {
@@ -96,7 +96,7 @@ object AnthropicProvider : AiProvider {
 		onMessageAdded: (Session.Message) -> Unit,
 	): Boolean {
 		return try {
-			val responseText = withClient { client ->
+			val outcome = withClient { client ->
 				val enabledTools = enabledTools(session)
 				if (enabledTools.isEmpty()) {
 					val maxTokens = maxTokensFor(model)
@@ -126,13 +126,16 @@ object AnthropicProvider : AiProvider {
 						}
 					}
 
-					streamResponse(client, builder.build(), model, onActionChange)
+					val response = client.messages().create(builder.build())
+					val usage = anthropicUsage(response)
+					session.recordProviderCall(name, model.apiName, usage, "assistant")
+					GenerationOutcome(extractText(response), usage)
 				} else {
 					generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
 				}
 			}
 
-			session.addAssistantMessage(responseText)
+			session.addAssistantMessage(outcome.text, outcome.usage)
 			true
 		} catch (exception: Exception) {
 			session.addErrorMessage(exception.message ?: "Unknown error")
@@ -144,10 +147,10 @@ object AnthropicProvider : AiProvider {
 		client: com.anthropic.client.AnthropicClient,
 		model: AiModel,
 		session: Session,
-		enabledTools: List<me.wanttobee.mineai.ai.tools.AiTool>,
+		enabledTools: List<me.wanttobee.mineai.ai.toolcalling.AiTool>,
 		onActionChange: (String) -> Unit,
 		onMessageAdded: (Session.Message) -> Unit,
-	): String {
+	): GenerationOutcome {
 		val conversation = session.messages().mapNotNull { message ->
 			when (message.type) {
 				Session.Message.Type.USER -> MessageParam.builder()
@@ -175,35 +178,40 @@ object AnthropicProvider : AiProvider {
 			conversation.forEach(builder::addMessage)
 
 			val response = client.messages().create(builder.build())
+			val usage = anthropicUsage(response)
 			val toolUses = response.content()
 				.filter(ContentBlock::isToolUse)
 				.map(ContentBlock::asToolUse)
 
 			if (toolUses.isEmpty()) {
 				onActionChange("generating")
-				return extractText(response)
+				session.recordProviderCall(name, model.apiName, usage, "assistant")
+				return GenerationOutcome(extractText(response), usage)
 			}
+			session.recordProviderCall(name, model.apiName, usage, "tool_calls")
 
 			conversation += response.toParam()
 
 			val toolResults = toolUses.map { toolUse ->
 				onActionChange("using ${toolUse.name()}")
+				val arguments = parseJsonArguments(toolUse._input())
 				val invocation = ToolManager.invoke(
 					playerId = session.boundPlayerId,
 					name = toolUse.name(),
-					arguments = parseJsonArguments(toolUse._input()),
+					arguments = arguments,
 				)
 				invocation?.conversationMessage?.let { content ->
 					session.addToolMessage(content)
 					onMessageAdded(session.lastMessage()!!)
 				}
-				val result = invocation?.execution
+				val result = invocation?.execution ?: missingToolResult(toolUse.name())
+				session.recordToolInvocation(toolUse.name(), arguments, result, invocation?.conversationMessage)
 
 				ContentBlockParam.ofToolResult(
 					ToolResultBlockParam.builder()
 						.toolUseId(toolUse.id())
-						.content((result ?: missingToolResult(toolUse.name())).asResponseMapAsString())
-						.isError(result?.isError ?: true)
+						.content(result.asResponseMapAsString())
+						.isError(result.isError)
 						.build()
 				)
 			}
@@ -214,7 +222,7 @@ object AnthropicProvider : AiProvider {
 				.build()
 		}
 
-		return toolCallLimitReachedMessage()
+		return GenerationOutcome(toolCallLimitReachedMessage())
 	}
 
 	private fun maxTokensFor(model: AiModel): Long {
@@ -309,13 +317,13 @@ object AnthropicProvider : AiProvider {
 			.name(tool.name)
 			.description(tool.description)
 			.strict(true)
-			.inputSchema(
-				AnthropicTool.InputSchema.builder()
-					.properties(properties)
-					.required(tool.parameters.map(AiTool.Parameter::name))
-					.additionalProperties(mapOf("additionalProperties" to AnthropicJsonValue.from(false)))
-					.build()
-			)
+				.inputSchema(
+					AnthropicTool.InputSchema.builder()
+						.properties(properties)
+						.required(tool.parameters.filter(AiTool.Parameter::required).map(AiTool.Parameter::name))
+						.additionalProperties(mapOf("additionalProperties" to AnthropicJsonValue.from(false)))
+						.build()
+				)
 			.build()
 	}
 
@@ -346,6 +354,32 @@ object AnthropicProvider : AiProvider {
 			}
 		}
 	}
+
+	private fun anthropicUsage(message: Message): Session.TokenUsage? {
+		val usage = message._usage().asKnown().orElse(null) ?: return null
+		val inputTokens = usage._inputTokens().asKnown().orElse(null)
+		val outputTokens = usage._outputTokens().asKnown().orElse(null)
+		val cacheCreationInputTokens = usage._cacheCreationInputTokens().asKnown().orElse(null)
+		val cacheReadInputTokens = usage._cacheReadInputTokens().asKnown().orElse(null)
+		val totalTokens = listOfNotNull(
+			inputTokens,
+			outputTokens,
+			cacheCreationInputTokens,
+			cacheReadInputTokens,
+		).sum().takeIf { it > 0 }
+		return Session.TokenUsage(
+			inputTokens = inputTokens,
+			outputTokens = outputTokens,
+			totalTokens = totalTokens,
+			cacheCreationInputTokens = cacheCreationInputTokens,
+			cacheReadInputTokens = cacheReadInputTokens,
+		)
+	}
+
+	private data class GenerationOutcome(
+		val text: String,
+		val usage: Session.TokenUsage? = null,
+	)
 
 	private fun AiTool.ExecutionResult.asResponseMapAsString(): String {
 		return com.google.gson.Gson().toJson(asResponseMap())

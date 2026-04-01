@@ -11,12 +11,15 @@ import me.wanttobee.mineai.ai.AiService
 import me.wanttobee.mineai.ai.Providers
 import me.wanttobee.mineai.ai.sessions.AiTargetManager
 import me.wanttobee.mineai.ai.sessions.Session
-import me.wanttobee.mineai.ai.tools.AiTool
+import me.wanttobee.mineai.ai.toolcalling.AiTool
 import me.wanttobee.mineai.util.MinecraftTextFormatter
 import net.minecraft.ChatFormatting
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.commands.SharedSuggestionProvider
+import net.minecraft.commands.arguments.coordinates.BlockPosArgument
+import net.minecraft.commands.arguments.coordinates.Coordinates
 import net.minecraft.commands.Commands as MinecraftCommands
+import net.minecraft.core.BlockPos
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.Style
 import net.minecraft.server.MinecraftServer
@@ -143,6 +146,39 @@ object AiCommands {
 											1
 										}
 								)
+						)
+				)
+				.then(
+					MinecraftCommands.literal("sandbox")
+						.executes { context ->
+							showSandbox(context.source)
+							1
+						}
+						.then(
+							MinecraftCommands.literal("at")
+								.then(
+									MinecraftCommands.argument("pos1", BlockPosArgument.blockPos())
+										.then(
+											MinecraftCommands.argument("pos2", BlockPosArgument.blockPos())
+												.executes { context ->
+													val player = context.source.player ?: return@executes 0
+													setSandbox(
+														context.source,
+														player.uuid,
+														BlockPosArgument.getBlockPos(context, "pos1"),
+														BlockPosArgument.getBlockPos(context, "pos2"),
+													)
+													1
+												}
+										)
+								)
+						)
+						.then(
+							MinecraftCommands.literal("clear")
+								.executes { context ->
+									clearSandbox(context.source)
+									1
+								}
 						)
 				)
 				.then(
@@ -292,6 +328,7 @@ object AiCommands {
 			}
 		}
 
+		attachToolExecution(root, tool, 0)
 		attachToolArguments(root, tool, 0)
 		return root
 	}
@@ -306,26 +343,39 @@ object AiCommands {
 		}
 
 		val parameter = tool.parameters[parameterIndex]
-		val argumentType = when {
-			parameterIndex == tool.parameters.lastIndex && parameter.type == AiTool.Type.STRING ->
-				StringArgumentType.greedyString()
-			else -> StringArgumentType.word()
-		}
-
-		val argument = MinecraftCommands.argument(parameter.name, argumentType)
-			.suggests { context, builder ->
-				suggestToolArgument(tool, parameterIndex, context, builder)
-			}
-
-		if (parameterIndex == tool.parameters.lastIndex) {
-			argument.executes { context ->
-				runManualTool(context.source, tool, toolArguments(tool, context))
-				1
+		val argument = when (parameter.manualInput) {
+			AiTool.ManualInput.BLOCK_POS -> MinecraftCommands.argument(parameter.name, BlockPosArgument.blockPos())
+			AiTool.ManualInput.WORD -> {
+				val argumentType = when {
+					parameterIndex == tool.parameters.lastIndex && parameter.type == AiTool.Type.STRING ->
+						StringArgumentType.greedyString()
+					else -> StringArgumentType.word()
+				}
+				MinecraftCommands.argument(parameter.name, argumentType)
+					.suggests { context, builder ->
+						suggestToolArgument(tool, parameterIndex, context, builder)
+					}
 			}
 		}
 
-		parent.then(argument)
+		attachToolExecution(argument, tool, parameterIndex + 1)
 		attachToolArguments(argument, tool, parameterIndex + 1)
+		parent.then(argument)
+	}
+
+	private fun attachToolExecution(
+		parent: ArgumentBuilder<CommandSourceStack, *>,
+		tool: AiTool,
+		providedParameterCount: Int,
+	) {
+		if (tool.parameters.drop(providedParameterCount).any(AiTool.Parameter::required)) {
+			return
+		}
+
+		parent.executes { context ->
+			runManualTool(context.source, tool, toolArguments(tool, context, providedParameterCount))
+			1
+		}
 	}
 
 	private fun showCurrentTarget(source: CommandSourceStack) {
@@ -360,6 +410,64 @@ object AiCommands {
 				Component.literal(
 					if (cleared) "AI session cleared."
 					else "No AI session to clear."
+				).withStyle(ChatFormatting.YELLOW)
+			},
+			false
+		)
+	}
+
+	private fun showSandbox(source: CommandSourceStack) {
+		val player = source.player ?: return
+		val sandbox = AiService.currentSandbox(player.uuid)
+		if (sandbox == null) {
+			source.sendSuccess(
+				{ Component.literal("No sandbox defined.").withStyle(ChatFormatting.YELLOW) },
+				false
+			)
+			return
+		}
+
+		source.sendSuccess(
+			{
+				Component.literal("Sandbox: ").withStyle(ChatFormatting.YELLOW)
+					.append(Component.literal(sandbox.boundary.description()).withStyle(ChatFormatting.WHITE))
+			},
+			false
+		)
+	}
+
+	private fun setSandbox(
+		source: CommandSourceStack,
+		playerId: UUID,
+		firstCorner: BlockPos,
+		secondCorner: BlockPos,
+	) {
+		val sandbox = AiService.setSandbox(
+			playerId = playerId,
+			dimension = source.level.dimension(),
+			firstCorner = firstCorner,
+			secondCorner = secondCorner,
+		)
+		val min = sandbox.minCorner()
+		val max = sandbox.maxCorner()
+
+		source.sendSuccess(
+			{
+				Component.literal("Sandbox set: ").withStyle(ChatFormatting.YELLOW)
+					.append(Component.literal("[${min.x}, ${min.y}, ${min.z}] -> [${max.x}, ${max.y}, ${max.z}]").withStyle(ChatFormatting.WHITE))
+			},
+			false
+		)
+	}
+
+	private fun clearSandbox(source: CommandSourceStack) {
+		val player = source.player ?: return
+		val cleared = AiService.clearSandbox(player.uuid)
+		source.sendSuccess(
+			{
+				Component.literal(
+					if (cleared != null) "Sandbox cleared."
+					else "No sandbox defined."
 				).withStyle(ChatFormatting.YELLOW)
 			},
 			false
@@ -553,8 +661,15 @@ object AiCommands {
 		uptoExclusive: Int = tool.parameters.size,
 	): Map<String, String> {
 		return tool.parameters.take(uptoExclusive).associate { parameter ->
-			parameter.name to StringArgumentType.getString(context, parameter.name)
+			parameter.name to when (parameter.manualInput) {
+				AiTool.ManualInput.BLOCK_POS -> formatToolPosition(BlockPosArgument.getBlockPos(context, parameter.name))
+				AiTool.ManualInput.WORD -> StringArgumentType.getString(context, parameter.name)
+			}
 		}
+	}
+
+	private fun formatToolPosition(position: BlockPos): String {
+		return "${position.x},${position.y},${position.z}"
 	}
 
 	private fun formatReasoningSuffix(target: AiTargetManager.AiTarget): Component {

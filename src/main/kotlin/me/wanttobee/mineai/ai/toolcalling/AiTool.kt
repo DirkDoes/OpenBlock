@@ -1,4 +1,4 @@
-package me.wanttobee.mineai.ai.tools
+package me.wanttobee.mineai.ai.toolcalling
 
 import java.util.UUID
 
@@ -37,6 +37,7 @@ interface AiTool {
 		val description: String,
 		val type: Type = Type.STRING,
 		val required: Boolean = true,
+		val manualInput: ManualInput = ManualInput.WORD,
 	)
 
 	data class Suggestion(
@@ -78,5 +79,10 @@ interface AiTool {
 				}
 			}
 		}
+	}
+
+	enum class ManualInput {
+		WORD,
+		BLOCK_POS,
 	}
 }

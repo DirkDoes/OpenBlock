@@ -1,4 +1,4 @@
-package me.wanttobee.mineai.ai.tools
+package me.wanttobee.mineai.ai.toolcalling
 
 import com.mojang.brigadier.tree.CommandNode
 import me.wanttobee.mineai.ai.context.PlayerContextCapturer
@@ -10,11 +10,11 @@ import java.util.UUID
 
 object CommandToolsSupport {
 	private val allowedRoots = setOf(
-		"advancement", "attribute", "bossbar", "clear", "clone", "damage", "data", "datapack",
+		"advancement", "attribute", "bossbar", "clear", "damage", "data", "datapack",
 		"defaultgamemode", "difficulty", "effect", "enchant", "execute", "experience", "xp",
-		"fill", "forceload", "function", "gamemode", "gamerule", "give", "item", "kill", "kick",
-		"list", "locate", "loot", "me", "msg", "tell", "w", "particle", "place",
-		"playsound", "recipe", "ride", "say", "schedule", "scoreboard", "seed", "setblock",
+		"forceload", "function", "gamemode", "gamerule", "give", "item", "kill", "kick",
+		"list", "locate", "loot", "me", "msg", "tell", "w", "particle",
+		"playsound", "recipe", "ride", "say", "schedule", "scoreboard", "seed",
 		"setworldspawn", "spawnpoint", "spectate", "spreadplayers", "summon", "tag", "team",
 		"teammsg", "teleport", "tp", "tellraw", "time", "title", "trigger", "weather",
 	)
@@ -39,7 +39,7 @@ object CommandToolsSupport {
 		val dispatcher = server.commands.dispatcher
 		val node = dispatcher.root.getChild(rootName)
 			?: return error("Command is not currently registered: $rootName")
-		val source = commandSource(server, playerId)
+		val source = createCommandSource(server, playerId)
 
 		val smartUsage = dispatcher.getSmartUsage(node, source)
 			.values
@@ -70,12 +70,22 @@ object CommandToolsSupport {
 			return error(validationError)
 		}
 
+		return runCommand(playerId, normalizedCommand)
+	}
+
+	internal fun executeInternal(playerId: UUID?, command: String): AiTool.ExecutionResult {
+		val normalizedCommand = normalizeCommand(command)
+			?: return error("Command cannot be blank.")
+		return runCommand(playerId, normalizedCommand)
+	}
+
+	private fun runCommand(playerId: UUID?, normalizedCommand: String): AiTool.ExecutionResult {
 		val server = PlayerContextCapturer.currentServer()
 			?: return error("Server is not available.")
 		val output = mutableListOf<String>()
 		var success = false
 		var resultCount = 0
-		val source = commandSource(server, playerId, output).withCallback(
+		val source = createCommandSource(server, playerId, output).withCallback(
 			CommandResultCallback { succeeded, result ->
 				success = succeeded
 				resultCount = result
@@ -97,7 +107,7 @@ object CommandToolsSupport {
 		}
 	}
 
-	private fun commandSource(
+	internal fun createCommandSource(
 		server: net.minecraft.server.MinecraftServer,
 		playerId: UUID?,
 		output: MutableList<String> = mutableListOf(),

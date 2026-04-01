@@ -1,4 +1,4 @@
-package me.wanttobee.mineai.ai.tools
+package me.wanttobee.mineai.ai.toolcalling
 
 class ToolArguments private constructor(
 	@PublishedApi internal val values: Map<String, Any>,
@@ -8,6 +8,11 @@ class ToolArguments private constructor(
 			?: error("Missing validated argument: $name")
 		return value as? T
 			?: error("Validated argument $name is not a ${T::class.simpleName}")
+	}
+
+	inline fun <reified T : Any> getOrNull(name: String): T? {
+		val value = values[name] ?: return null
+		return value as? T
 	}
 
 	companion object {

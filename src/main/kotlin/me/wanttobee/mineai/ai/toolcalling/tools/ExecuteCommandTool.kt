@@ -1,5 +1,8 @@
-package me.wanttobee.mineai.ai.tools
+package me.wanttobee.mineai.ai.toolcalling.tools
 
+import me.wanttobee.mineai.ai.toolcalling.AiTool
+import me.wanttobee.mineai.ai.toolcalling.CommandToolsSupport
+import me.wanttobee.mineai.ai.toolcalling.ToolArguments
 import java.util.UUID
 
 object ExecuteCommandTool : AiTool {
@@ -11,7 +14,7 @@ object ExecuteCommandTool : AiTool {
 	override val name = "execute_command"
 	override val description =
 		"Executes one whitelisted command from the bound player's current location, but as the server command source."
-	override val enabledByDefault = true
+	override val enabledByDefault = false
 	override val parameters = listOf(commandParameter)
 
 	override fun suggestions(

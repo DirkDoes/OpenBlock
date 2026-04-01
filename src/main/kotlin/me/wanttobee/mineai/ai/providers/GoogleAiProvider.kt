@@ -11,8 +11,8 @@ import com.google.genai.types.Schema
 import com.google.genai.types.ThinkingConfig
 import me.wanttobee.mineai.ai.sessions.Session
 import me.wanttobee.mineai.ai.sessions.AiModel
-import me.wanttobee.mineai.ai.tools.AiTool
-import me.wanttobee.mineai.ai.tools.ToolManager
+import me.wanttobee.mineai.ai.toolcalling.AiTool
+import me.wanttobee.mineai.ai.toolcalling.ToolManager
 import me.wanttobee.mineai.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
 
@@ -127,7 +127,7 @@ object GoogleAiProvider : AiProvider {
 		onMessageAdded: (Session.Message) -> Unit,
 	): Boolean {
 		return try {
-			val responseText = withClient { client ->
+			val outcome = withClient { client ->
 				val enabledTools = enabledTools(session)
 				if (enabledTools.isEmpty()) {
 					val config = GenerateContentConfig.builder().apply {
@@ -140,13 +140,19 @@ object GoogleAiProvider : AiProvider {
 						}
 						applyThinking(model)
 					}.build()
-					streamResponse(client, model.apiName, toContents(session), config, model, onActionChange)
+					val response = client.models.generateContent(model.apiName, toContents(session), config)
+					val usage = googleUsage(response)
+					session.recordProviderCall(name, model.apiName, usage, "assistant")
+					GenerationOutcome(
+						response.text()?.takeIf { it.isNotBlank() } ?: "Google returned an empty response.",
+						usage,
+					)
 				} else {
 					generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
 				}
 			}
 
-			session.addAssistantMessage(responseText)
+			session.addAssistantMessage(outcome.text, outcome.usage)
 			true
 		} catch (exception: Exception) {
 			session.addErrorMessage(formatException(exception))
@@ -158,10 +164,10 @@ object GoogleAiProvider : AiProvider {
 		client: Client,
 		model: AiModel,
 		session: Session,
-		enabledTools: List<me.wanttobee.mineai.ai.tools.AiTool>,
+		enabledTools: List<me.wanttobee.mineai.ai.toolcalling.AiTool>,
 		onActionChange: (String) -> Unit,
 		onMessageAdded: (Session.Message) -> Unit,
-	): String {
+	): GenerationOutcome {
 		val conversation = toContents(session).toMutableList()
 
 		repeat(AiProvider.MAX_TOOL_CALLS) {
@@ -183,11 +189,17 @@ object GoogleAiProvider : AiProvider {
 			}.build()
 
 			val response = client.models.generateContent(model.apiName, conversation, config)
+			val usage = googleUsage(response)
 			val functionCalls = response.functionCalls() ?: emptyList()
 			if (functionCalls.isEmpty()) {
 				onActionChange("generating")
-				return response.text()?.takeIf { it.isNotBlank() } ?: "Google returned an empty response."
+				session.recordProviderCall(name, model.apiName, usage, "assistant")
+				return GenerationOutcome(
+					response.text()?.takeIf { it.isNotBlank() } ?: "Google returned an empty response.",
+					usage,
+				)
 			}
+			session.recordProviderCall(name, model.apiName, usage, "tool_calls")
 
 			response.parts()?.takeIf { it.isNotEmpty() }?.let { parts ->
 				conversation += Content.builder()
@@ -197,24 +209,27 @@ object GoogleAiProvider : AiProvider {
 			}
 
 			val functionResponses = functionCalls.map { functionCall ->
+				val toolName = functionCall.name().orElse("")
 				onActionChange("using ${functionCall.name().orElse("tool")}")
+				val arguments = functionCall.args()
+					.orElse(emptyMap())
+					.mapValues { (_, value) -> value?.toString().orEmpty() }
 				val invocation = ToolManager.invoke(
 					playerId = session.boundPlayerId,
-					name = functionCall.name().orElse(""),
-					arguments = functionCall.args()
-						.orElse(emptyMap())
-						.mapValues { (_, value) -> value?.toString().orEmpty() },
+					name = toolName,
+					arguments = arguments,
 				)
 				invocation?.conversationMessage?.let { content ->
 					session.addToolMessage(content)
 					onMessageAdded(session.lastMessage()!!)
 				}
-				val result = invocation?.execution ?: missingToolResult(functionCall.name().orElse(""))
+				val result = invocation?.execution ?: missingToolResult(toolName)
+				session.recordToolInvocation(toolName, arguments, result, invocation?.conversationMessage)
 
 				Part.builder()
 					.functionResponse(
 						FunctionResponse.builder()
-							.name(functionCall.name().orElse(""))
+							.name(toolName)
 							.id(functionCall.id().orElse(null))
 							.response(googleFunctionResponsePayload(result))
 							.build()
@@ -228,7 +243,7 @@ object GoogleAiProvider : AiProvider {
 				.build()
 		}
 
-		return toolCallLimitReachedMessage()
+		return GenerationOutcome(toolCallLimitReachedMessage())
 	}
 
 	private fun streamResponse(
@@ -314,7 +329,7 @@ object GoogleAiProvider : AiProvider {
 		val parameters = Schema.builder()
 			.type("OBJECT")
 			.properties(properties)
-			.required(tool.parameters.map(AiTool.Parameter::name))
+			.required(tool.parameters.filter(AiTool.Parameter::required).map(AiTool.Parameter::name))
 			.propertyOrdering(tool.parameters.map(AiTool.Parameter::name))
 			.build()
 
@@ -341,6 +356,23 @@ object GoogleAiProvider : AiProvider {
 		return exception.message?.takeIf { it.isNotBlank() }
 			?: exception.toString()
 	}
+
+	private fun googleUsage(response: com.google.genai.types.GenerateContentResponse): Session.TokenUsage? {
+		val usage = response.usageMetadata().orElse(null) ?: return null
+		return Session.TokenUsage(
+			inputTokens = usage.promptTokenCount().orElse(null)?.toLong(),
+			outputTokens = usage.candidatesTokenCount().orElse(null)?.toLong(),
+			totalTokens = usage.totalTokenCount().orElse(null)?.toLong(),
+			cacheReadInputTokens = usage.cachedContentTokenCount().orElse(null)?.toLong(),
+			thoughtsTokens = usage.thoughtsTokenCount().orElse(null)?.toLong(),
+			toolUsePromptTokens = usage.toolUsePromptTokenCount().orElse(null)?.toLong(),
+		)
+	}
+
+	private data class GenerationOutcome(
+		val text: String,
+		val usage: Session.TokenUsage? = null,
+	)
 
 	private fun client() = Client.builder()
 		.apiKey(requiredApiKey())

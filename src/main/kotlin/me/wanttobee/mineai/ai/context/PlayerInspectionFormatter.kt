@@ -1,6 +1,6 @@
 package me.wanttobee.mineai.ai.context
 
-import me.wanttobee.mineai.ai.tools.AiTool
+import me.wanttobee.mineai.ai.toolcalling.AiTool
 import net.minecraft.core.component.DataComponents
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.world.entity.EquipmentSlot

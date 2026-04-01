@@ -16,13 +16,13 @@ object AiTargetManager {
 		val playerTargets = lastSelectedTargetsFor(playerId)
 		val target = modelId?.trim().takeUnless { it.isNullOrEmpty() }?.let { requestedModel ->
 			val baseModel = Providers.resolveModel(providerName, requestedModel) ?: AiModel(requestedModel, requestedModel)
-			val selectedModel = provider.applyReasoning(baseModel, reasoningValue) ?: return null
+			val selectedModel = provider.resolveReasoning(baseModel, reasoningValue) ?: return null
 			AiTarget(provider, selectedModel)
 		} ?: playerTargets[provider.name]?.let { existingTarget ->
 			if (reasoningValue.isNullOrBlank()) {
 				existingTarget
 			} else {
-				val selectedModel = provider.applyReasoning(existingTarget.model, reasoningValue) ?: return null
+				val selectedModel = provider.resolveReasoning(existingTarget.model, reasoningValue) ?: return null
 				AiTarget(provider, selectedModel)
 			}
 		}
@@ -46,7 +46,7 @@ object AiTargetManager {
 	private fun defaultTargetFor(providerName: String, provider: AiProvider): AiTarget {
 		val defaultModel = Providers.getModel(providerName, provider.defaultModel)
 		return if (defaultModel != null) {
-			AiTarget(provider, defaultModel)
+			AiTarget(provider, provider.resolveReasoning(defaultModel, null) ?: defaultModel)
 		} else {
 			AiTarget(provider, AiModel(provider.defaultModel, provider.defaultModel))
 		}

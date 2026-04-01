@@ -2,8 +2,8 @@ package me.wanttobee.mineai.ai.providers
 
 import me.wanttobee.mineai.ai.sessions.AiModel
 import me.wanttobee.mineai.ai.sessions.Session
-import me.wanttobee.mineai.ai.tools.AiTool
-import me.wanttobee.mineai.ai.tools.ToolManager
+import me.wanttobee.mineai.ai.toolcalling.AiTool
+import me.wanttobee.mineai.ai.toolcalling.ToolManager
 import net.minecraft.ChatFormatting
 
 interface AiProvider {
@@ -25,6 +25,27 @@ interface AiProvider {
 
 	fun applyReasoning(model: AiModel, value: String?): AiModel? {
 		return model
+	}
+
+	fun resolveReasoning(model: AiModel, value: String?): AiModel? {
+		val requestedValue = value?.trim()?.takeIf { it.isNotEmpty() } ?: defaultReasoningValue(model)
+		if (requestedValue == null) {
+			return model
+		}
+		return applyReasoning(model, requestedValue)
+	}
+
+	fun defaultReasoningValue(model: AiModel): String? {
+		val support = model.reasoningSupport
+		if (!support.supportsReasoning()) {
+			return null
+		}
+
+		return when (support.kind) {
+			AiModel.ReasoningSupport.Kind.TEXT -> support.values.middleOrNull()
+			AiModel.ReasoningSupport.Kind.NUMBER -> support.numericExamples.middleOrNull()?.toString()
+			AiModel.ReasoningSupport.Kind.UNSUPPORTED -> null
+		}
 	}
 
 	fun reasoningSuggestions(model: AiModel): List<ReasoningSuggestion> {
@@ -65,4 +86,11 @@ interface AiProvider {
 	companion object {
 		const val MAX_TOOL_CALLS = 50
 	}
+}
+
+private fun <T> List<T>.middleOrNull(): T? {
+	if (isEmpty()) {
+		return null
+	}
+	return this[size / 2]
 }

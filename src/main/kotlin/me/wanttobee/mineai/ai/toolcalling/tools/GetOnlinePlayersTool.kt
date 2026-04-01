@@ -1,6 +1,8 @@
-package me.wanttobee.mineai.ai.tools
+package me.wanttobee.mineai.ai.toolcalling.tools
 
 import me.wanttobee.mineai.ai.context.PlayerInspectionFormatter
+import me.wanttobee.mineai.ai.toolcalling.AiTool
+import me.wanttobee.mineai.ai.toolcalling.ToolArguments
 
 object GetOnlinePlayersTool : AiTool {
 	override val name = "get_online_players"
