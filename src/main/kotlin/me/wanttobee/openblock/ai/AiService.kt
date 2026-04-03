@@ -46,7 +46,7 @@ object AiService {
 		val target = currentTarget(playerId) ?: return null
 		val session = AiSessionManager.getSession(playerId) ?: AiSessionManager.createSession(
 			playerId = playerId,
-			systemPrompt = KnowledgeBase.OPENBLOCK_IDENTITY,
+			systemPrompt = KnowledgeBase.OPENBLOCK_IDENTITY + KnowledgeBase.REDSTONE_DIRECTION_DETAILS,
 			bindPlayerId = true,
 		)
 		session.addUserMessage(message)

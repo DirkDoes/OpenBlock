@@ -6,7 +6,7 @@ OpenBlock is a server-side Minecraft mod focused on bringing full AI-driven game
 
 ## Environment Variables
 
-OpenBlock reads env values from `config/.env` or `config/openblock.env`. If the same key exists in both files, `openblock.env` takes priority, so you can keep using `.env` if you already have one and override only the values for this mod when needed.
+OpenBlock reads env values from `config/.env` or `config/openblock.env` (from your server files). If the same key exists in both files, `openblock.env` takes priority.
 
 ```env
 OPENAI_API_KEY=
