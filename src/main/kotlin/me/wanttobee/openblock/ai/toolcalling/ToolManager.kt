@@ -1,5 +1,8 @@
 package me.wanttobee.openblock.ai.toolcalling
 
+import me.wanttobee.openblock.ai.toolcalling.base.AiTool
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolInvocation
 import me.wanttobee.openblock.ai.toolcalling.tools.ExecuteCommandTool
 import me.wanttobee.openblock.ai.toolcalling.tools.FillBlocksTool
 import me.wanttobee.openblock.ai.toolcalling.tools.GetBlockDetailsTool
@@ -53,12 +56,13 @@ object ToolManager {
 		return true
 	}
 
-	fun invoke(playerId: UUID?, name: String, arguments: Map<String, String>): AiTool.InvocationResult? {
-		val tool = getTool(name) ?: return null
+	fun invoke(playerId: UUID?, name: String, arguments: Map<String, String>): Result<AiToolInvocation> {
+		val tool = getTool(name)
+			?: return Result.failure(NoSuchElementException("Unknown tool: $name"))
 		return tool.invoke(playerId, arguments)
 	}
 
-	fun execute(playerId: UUID?, name: String, arguments: Map<String, String>): AiTool.ExecutionResult? {
-		return invoke(playerId, name, arguments)?.execution
+	fun execute(playerId: UUID?, name: String, arguments: Map<String, String>): Result<AiToolExecution> {
+		return invoke(playerId, name, arguments).map(AiToolInvocation::execution)
 	}
 }

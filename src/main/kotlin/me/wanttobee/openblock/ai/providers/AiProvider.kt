@@ -2,8 +2,11 @@ package me.wanttobee.openblock.ai.providers
 
 import me.wanttobee.openblock.ai.sessions.AiModel
 import me.wanttobee.openblock.ai.sessions.Session
-import me.wanttobee.openblock.ai.toolcalling.AiTool
+import me.wanttobee.openblock.ai.sessions.base.SessionMessage
+import me.wanttobee.openblock.ai.toolcalling.base.AiTool
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import me.wanttobee.openblock.ai.toolcalling.ToolManager
+import me.wanttobee.openblock.util.middleOrNull
 import net.minecraft.ChatFormatting
 
 interface AiProvider {
@@ -22,14 +25,14 @@ interface AiProvider {
 		return if (model.usesReasoning()) "thinking" else "generating"
 	}
 
-	fun applyReasoning(model: AiModel, value: String?): AiModel? {
-		return model
+	fun applyReasoning(model: AiModel, value: String?): Result<AiModel> {
+		return Result.success(model)
 	}
 
-	fun resolveReasoning(model: AiModel, value: String?): AiModel? {
+	fun resolveReasoning(model: AiModel, value: String?): Result<AiModel> {
 		val requestedValue = value?.trim()?.takeIf { it.isNotEmpty() } ?: defaultReasoningValue(model)
 		if (requestedValue == null) {
-			return model
+			return Result.success(model)
 		}
 		return applyReasoning(model, requestedValue)
 	}
@@ -47,20 +50,22 @@ interface AiProvider {
 		}
 	}
 
-	fun reasoningSuggestions(model: AiModel): List<ReasoningSuggestion> {
-		return emptyList()
+	fun reasoningSuggestions(model: AiModel): Result<List<ReasoningSuggestion>> {
+		return Result.success(emptyList())
 	}
 
-	fun describeReasoning(model: AiModel): String? {
-		return null
+	fun describeReasoning(model: AiModel): Result<String> {
+		return Result.failure(
+			UnsupportedOperationException("$displayName does not support reasoning for ${model.displayName}.")
+		)
 	}
 
 	fun enabledTools(session: Session): List<AiTool> {
 		return ToolManager.enabledTools(session.boundPlayerId)
 	}
 
-	fun missingToolResult(toolName: String): AiTool.ExecutionResult {
-		return AiTool.ExecutionResult(
+	fun missingToolResult(toolName: String): AiToolExecution {
+		return AiToolExecution(
 			payload = mapOf("message" to "Unknown tool: $toolName"),
 			isError = true,
 		)
@@ -74,8 +79,8 @@ interface AiProvider {
 		model: AiModel,
 		session: Session,
 		onActionChange: (String) -> Unit = {},
-		onMessageAdded: (Session.Message) -> Unit = {},
-	): Boolean
+		onMessageAdded: (SessionMessage) -> Unit = {},
+	): Result<Boolean>
 
 	data class ReasoningSuggestion(
 		val value: String,
@@ -85,11 +90,4 @@ interface AiProvider {
 	companion object {
 		const val MAX_TOOL_CALLS = 50
 	}
-}
-
-private fun <T> List<T>.middleOrNull(): T? {
-	if (isEmpty()) {
-		return null
-	}
-	return this[size / 2]
 }

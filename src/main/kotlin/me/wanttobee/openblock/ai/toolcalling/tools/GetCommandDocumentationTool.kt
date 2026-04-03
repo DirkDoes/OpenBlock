@@ -1,12 +1,16 @@
 package me.wanttobee.openblock.ai.toolcalling.tools
 
-import me.wanttobee.openblock.ai.toolcalling.AiTool
 import me.wanttobee.openblock.ai.toolcalling.CommandToolsSupport
-import me.wanttobee.openblock.ai.toolcalling.ToolArguments
+import me.wanttobee.openblock.ai.toolcalling.base.AiTool
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolParameter
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolSuggestion
+import me.wanttobee.openblock.ai.toolcalling.base.ToolArguments
+import net.minecraft.world.item.Items
 import java.util.UUID
 
 object GetCommandDocumentationTool : AiTool {
-	private val commandParameter = AiTool.Parameter(
+	private val commandParameter = AiToolParameter(
 		name = "command",
 		description = "The root command name to inspect, for example time or weather.",
 	)
@@ -16,25 +20,28 @@ object GetCommandDocumentationTool : AiTool {
 		"Returns live documentation for a whitelisted command from the current server command tree."
 	override val enabledByDefault = false
 	override val parameters = listOf(commandParameter)
+	override val menuIcon = Items.CHAIN_COMMAND_BLOCK
+	override val hasConfigurationMenu = true
 
 	override fun suggestions(
 		playerId: UUID?,
 		parameterIndex: Int,
 		arguments: Map<String, String>,
-	): List<AiTool.Suggestion> {
+	): Result<List<AiToolSuggestion>> {
 		if (parameterIndex != 0) {
-			return emptyList()
+			return Result.success(emptyList())
 		}
 
-		return CommandToolsSupport.availableCommands().map { command ->
-			AiTool.Suggestion(command)
-		}
+		return Result.success(CommandToolsSupport.availableCommands().map { command ->
+			AiToolSuggestion(command)
+		})
 	}
 
-	override fun execute(playerId: UUID?, arguments: ToolArguments): AiTool.ExecutionResult {
-		return CommandToolsSupport.documentation(
+	override fun execute(playerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
+		val commandName = arguments.get<String>(commandParameter.name).getOrElse { return Result.failure(it) }
+		return Result.success(CommandToolsSupport.documentation(
 			playerId = playerId,
-			commandName = arguments.get(commandParameter.name),
-		)
+			commandName = commandName,
+		))
 	}
 }

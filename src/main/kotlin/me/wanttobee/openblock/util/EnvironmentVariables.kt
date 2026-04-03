@@ -13,14 +13,13 @@ object EnvironmentVariables {
 	private val runtimeOverrides = ConcurrentHashMap<String, String>()
 
 	fun ensureFileExists() {
-		ensureFile(defaultDotenvPath())
 		ensureFile(defaultOpenBlockPath())
 	}
 
 	fun read(): Map<String, String> {
 		val merged = linkedMapOf<String, String>()
-		merged.putAll(readFile(defaultDotenvPath()))
-		for ((key, value) in readFile(defaultOpenBlockPath())) {
+		merged.putAll(readFile(defaultDotenvPath()).getOrElse { emptyMap() })
+		for ((key, value) in readFile(defaultOpenBlockPath()).getOrElse { emptyMap() }) {
 			if (value.isNotBlank()) {
 				merged[key] = value
 			} else if (!merged.containsKey(key)) {
@@ -33,9 +32,13 @@ object EnvironmentVariables {
 		return TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER).apply { putAll(merged) }
 	}
 
-	fun get(key: String): String? = read().entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value
+	fun get(key: String): Result<String> {
+		return read().entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value
+			?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("Unknown environment variable: $key"))
+	}
 
-	fun reveal(key: String): String? = get(key)
+	fun reveal(key: String): Result<String> = get(key)
 
 	fun keySet(): Set<String> = read().keys
 
@@ -43,13 +46,13 @@ object EnvironmentVariables {
 		runtimeOverrides[key] = value
 	}
 
-	fun parseQuotedValue(rawValue: String): String? {
+	fun parseQuotedValue(rawValue: String): Result<String> {
 		val trimmed = rawValue.trim()
 		if (trimmed.length < 2 || !trimmed.startsWith('"') || !trimmed.endsWith('"')) {
-			return null
+			return Result.failure(IllegalArgumentException("Value must be wrapped in double quotes."))
 		}
 
-		return buildString {
+		return Result.success(buildString {
 			var escaping = false
 			for (character in trimmed.substring(1, trimmed.length - 1)) {
 				if (escaping) {
@@ -74,7 +77,7 @@ object EnvironmentVariables {
 			if (escaping) {
 				append('\\')
 			}
-		}
+		})
 	}
 
 	private fun defaultOpenBlockPath(): Path = configDirectory().resolve(OPENBLOCK_FILE_NAME)
@@ -97,29 +100,30 @@ object EnvironmentVariables {
 			OPENAI_API_KEY=
 			ANTHROPIC_API_KEY=
 			GOOGLE_API_KEY=
-			
 		""".trimIndent()
 	}
 
-	private fun readFile(path: Path): Map<String, String> {
+	private fun readFile(path: Path): Result<Map<String, String>> {
 		if (!Files.exists(path)) {
-			return emptyMap()
+			return Result.success(emptyMap())
 		}
 
-		return Files.readAllLines(path)
-			.asSequence()
-			.map { it.trim() }
-			.filter { it.isNotEmpty() && !it.startsWith('#') }
-			.mapNotNull { line ->
-				val separatorIndex = line.indexOf('=')
-				if (separatorIndex <= 0) {
-					null
-				} else {
-					val key = line.substring(0, separatorIndex).trim()
-					val value = line.substring(separatorIndex + 1)
-					key to value
+		return runCatching {
+			Files.readAllLines(path)
+				.asSequence()
+				.map { it.trim() }
+				.filter { it.isNotEmpty() && !it.startsWith('#') }
+				.mapNotNull { line ->
+					val separatorIndex = line.indexOf('=')
+					if (separatorIndex <= 0) {
+						null
+					} else {
+						val key = line.substring(0, separatorIndex).trim()
+						val value = line.substring(separatorIndex + 1)
+						key to value
+					}
 				}
-			}
-			.toMap(TreeMap(String.CASE_INSENSITIVE_ORDER))
+				.toMap(TreeMap(String.CASE_INSENSITIVE_ORDER))
+		}
 	}
 }

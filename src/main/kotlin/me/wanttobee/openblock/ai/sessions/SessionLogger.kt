@@ -2,7 +2,10 @@ package me.wanttobee.openblock.ai.sessions
 
 import com.google.gson.GsonBuilder
 import me.wanttobee.openblock.ai.context.PlayerContextCapturer
-import me.wanttobee.openblock.ai.toolcalling.AiTool
+import me.wanttobee.openblock.ai.sessions.base.SessionMessage
+import me.wanttobee.openblock.ai.sessions.base.SessionSummary
+import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -10,7 +13,6 @@ import java.nio.file.StandardOpenOption
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 object SessionLogger {
 	private const val LOG_DIR = "openblock/sessions"
@@ -19,41 +21,25 @@ object SessionLogger {
 		.serializeNulls()
 		.create()
 	private val timestampFormatter: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
-	private val logsBySession = ConcurrentHashMap<UUID, SessionLog>()
 
 	fun logSessionStarted(session: Session) {
-		update(session) { log ->
-			log.events += LogEvent(
-				type = "session_started",
-				timestamp = timestamp(),
-			)
+		update(session) { snapshot ->
+			snapshot.messages = persistedMessages(session)
+			snapshot.summary = persistedSummary(session.summary())
 		}
 	}
 
 	fun logSessionClosed(session: Session, reason: String) {
-		update(session) { log ->
-			log.closedAt = timestamp()
-			log.closeReason = reason
-			log.events += LogEvent(
-				type = "session_closed",
-				timestamp = log.closedAt!!,
-				reason = reason,
-				totalsAfter = log.totals.copy(),
-			)
+		update(session) { snapshot ->
+			snapshot.closedAt = timestamp()
+			snapshot.closeReason = reason
 		}
 	}
 
-	fun logMessage(session: Session, message: Session.Message) {
-		update(session) { log ->
-			log.events += LogEvent(
-				type = "message",
-				timestamp = timestamp(),
-				messageType = message.type.name.lowercase(),
-				content = message.content,
-				hiddenContext = message.hiddenContent,
-				usage = message.usage,
-				totalsAfter = log.totals.copy(),
-			)
+	fun logMessage(session: Session, message: SessionMessage) {
+		update(session) { snapshot ->
+			snapshot.messages = persistedMessages(session)
+			snapshot.summary = persistedSummary(session.summary())
 		}
 	}
 
@@ -61,19 +47,16 @@ object SessionLogger {
 		session: Session,
 		provider: String,
 		model: String,
-		usage: Session.TokenUsage?,
+		usage: SessionTokenUsage?,
 		finishReason: String?,
 	) {
-		update(session) { log ->
-			log.totals.add(usage)
-			log.events += LogEvent(
-				type = "provider_call",
+		update(session) { snapshot ->
+			snapshot.providerCalls += ProviderCallEntry(
 				timestamp = timestamp(),
 				provider = provider,
 				model = model,
 				finishReason = finishReason,
 				usage = usage,
-				totalsAfter = log.totals.copy(),
 			)
 		}
 	}
@@ -82,48 +65,120 @@ object SessionLogger {
 		session: Session,
 		toolName: String,
 		arguments: Map<String, String>,
-		result: AiTool.ExecutionResult,
+		result: AiToolExecution,
 		conversationMessage: String?,
 	) {
-		update(session) { log ->
-			log.events += LogEvent(
-				type = "tool_invocation",
+		update(session) { snapshot ->
+			snapshot.toolInvocations += ToolInvocationEntry(
 				timestamp = timestamp(),
 				toolName = toolName,
 				toolArguments = arguments.toSortedMap(),
 				toolResult = result.asResponseMap(),
 				conversationMessage = conversationMessage,
-				totalsAfter = log.totals.copy(),
 			)
 		}
 	}
 
-	@Synchronized
-	private fun update(session: Session, mutate: (SessionLog) -> Unit) {
-		val log = logsBySession.computeIfAbsent(session.id) { createLog(session) }
-		mutate(log)
-		write(session, log)
+	fun listSessionSummaries(ownerPlayerId: UUID): Result<List<SessionSummary>> {
+		val directory = ownerDirectory(ownerPlayerId)
+			?: return Result.failure(IllegalStateException("Minecraft server is not available."))
+		if (!Files.isDirectory(directory)) {
+			return Result.success(emptyList())
+		}
+
+		return Result.success(Files.list(directory).use { files ->
+			files
+				.toList()
+				.filter { path -> Files.isRegularFile(path) && path.fileName.toString().endsWith(".json") }
+				.mapNotNull(::readSnapshot)
+				.sortedByDescending(SessionSnapshot::updatedAt)
+				.map { snapshot ->
+					SessionSummary(
+						id = UUID.fromString(snapshot.sessionId),
+						ownerPlayerId = UUID.fromString(snapshot.ownerPlayerId),
+						boundPlayerId = snapshot.boundPlayerId?.let(UUID::fromString),
+						systemPrompt = snapshot.systemPrompt,
+						userMessageCount = snapshot.summary.userMessageCount,
+						firstUserMessage = snapshot.summary.firstUserMessage,
+					)
+				}
+		})
 	}
 
-	private fun createLog(session: Session): SessionLog {
-		return SessionLog(
-			version = 1,
+	fun loadSession(ownerPlayerId: UUID, sessionId: UUID): Result<Session> {
+		val snapshot = readSnapshot(logFile(ownerPlayerId, sessionId))
+			?: return Result.failure(NoSuchElementException("Unknown session: $sessionId"))
+		val session = Session(
+			id = UUID.fromString(snapshot.sessionId),
+			ownerPlayerId = UUID.fromString(snapshot.ownerPlayerId),
+			systemPrompt = snapshot.systemPrompt,
+			boundPlayerId = snapshot.boundPlayerId?.let(UUID::fromString),
+		)
+		for (message in snapshot.messages) {
+			session.appendPersistedMessage(
+				SessionMessage(
+					type = SessionMessage.Type.valueOf(message.type),
+					content = message.content,
+					hiddenContent = message.hiddenContent,
+					usage = message.usage,
+				)
+			)
+		}
+		return Result.success(session)
+	}
+
+	@Synchronized
+	private fun update(session: Session, mutate: (SessionSnapshot) -> Unit) {
+		val snapshot = readSnapshot(logFile(session.ownerPlayerId, session.id)) ?: createSnapshot(session)
+		snapshot.ownerPlayerId = session.ownerPlayerId.toString()
+		snapshot.boundPlayerId = session.boundPlayerId?.toString()
+		snapshot.systemPrompt = session.systemPrompt
+		snapshot.updatedAt = timestamp()
+		mutate(snapshot)
+		write(session.ownerPlayerId, session.id, snapshot)
+	}
+
+	private fun createSnapshot(session: Session): SessionSnapshot {
+		val now = timestamp()
+		return SessionSnapshot(
+			version = 2,
 			sessionId = session.id.toString(),
+			ownerPlayerId = session.ownerPlayerId.toString(),
 			boundPlayerId = session.boundPlayerId?.toString(),
 			systemPrompt = session.systemPrompt,
-			startedAt = timestamp(),
-			totals = TokenTotals(),
-			events = mutableListOf(),
+			startedAt = now,
+			updatedAt = now,
+			summary = persistedSummary(session.summary()),
+			messages = persistedMessages(session),
+			providerCalls = mutableListOf(),
+			toolInvocations = mutableListOf(),
 		)
 	}
 
-	private fun write(session: Session, log: SessionLog) {
-		val server = PlayerContextCapturer.currentServer() ?: return
-		val directory = server.getFile(LOG_DIR)
+	private fun persistedSummary(summary: SessionSummary): PersistedSummary {
+		return PersistedSummary(
+			userMessageCount = summary.userMessageCount,
+			firstUserMessage = summary.firstUserMessage,
+		)
+	}
+
+	private fun persistedMessages(session: Session): MutableList<PersistedMessage> {
+		return session.messages().map { message ->
+			PersistedMessage(
+				type = message.type.name,
+				content = message.content,
+				hiddenContent = message.hiddenContent,
+				usage = message.usage,
+			)
+		}.toMutableList()
+	}
+
+	private fun write(ownerPlayerId: UUID, sessionId: UUID, snapshot: SessionSnapshot) {
+		val directory = ownerDirectory(ownerPlayerId) ?: return
 		Files.createDirectories(directory)
 		Files.writeString(
-			logFile(directory, session),
-			gson.toJson(log) + "\n",
+			logFile(directory, sessionId),
+			gson.toJson(snapshot) + "\n",
 			StandardCharsets.UTF_8,
 			StandardOpenOption.CREATE,
 			StandardOpenOption.TRUNCATE_EXISTING,
@@ -131,66 +186,75 @@ object SessionLogger {
 		)
 	}
 
-	private fun logFile(directory: Path, session: Session): Path {
-		return directory.resolve("${session.id}.json")
+	private fun readSnapshot(path: Path): SessionSnapshot? {
+		return runCatching {
+			if (!Files.exists(path)) {
+				null
+			} else {
+				Files.newBufferedReader(path, StandardCharsets.UTF_8).use { reader ->
+					gson.fromJson(reader, SessionSnapshot::class.java)
+				}
+			}
+		}.getOrNull()
+	}
+
+	private fun ownerDirectory(ownerPlayerId: UUID): Path? {
+		val server = PlayerContextCapturer.currentServer().getOrNull() ?: return null
+		return server.getFile(LOG_DIR).resolve(ownerPlayerId.toString())
+	}
+
+	private fun logFile(ownerPlayerId: UUID, sessionId: UUID): Path {
+		return ownerDirectory(ownerPlayerId)?.let { directory -> logFile(directory, sessionId) }
+			?: Path.of(LOG_DIR, ownerPlayerId.toString(), "$sessionId.json")
+	}
+
+	private fun logFile(directory: Path, sessionId: UUID): Path {
+		return directory.resolve("$sessionId.json")
 	}
 
 	private fun timestamp(): String = OffsetDateTime.now().format(timestampFormatter)
 
-	private data class SessionLog(
+	private data class SessionSnapshot(
 		val version: Int,
 		val sessionId: String,
-		val boundPlayerId: String?,
-		val systemPrompt: String?,
+		var ownerPlayerId: String,
+		var boundPlayerId: String?,
+		var systemPrompt: String?,
 		val startedAt: String,
+		var updatedAt: String,
 		var closedAt: String? = null,
 		var closeReason: String? = null,
-		val totals: TokenTotals,
-		val events: MutableList<LogEvent>,
+		var summary: PersistedSummary,
+		var messages: MutableList<PersistedMessage>,
+		val providerCalls: MutableList<ProviderCallEntry>,
+		val toolInvocations: MutableList<ToolInvocationEntry>,
 	)
 
-	private data class LogEvent(
+	private data class PersistedSummary(
+		val userMessageCount: Int,
+		val firstUserMessage: String?,
+	)
+
+	private data class PersistedMessage(
 		val type: String,
-		val timestamp: String,
-		val messageType: String? = null,
-		val content: String? = null,
-		val hiddenContext: String? = null,
-		val provider: String? = null,
-		val model: String? = null,
-		val finishReason: String? = null,
-		val toolName: String? = null,
-		val toolArguments: Map<String, String>? = null,
-		val toolResult: Map<String, Any?>? = null,
-		val conversationMessage: String? = null,
-		val usage: Session.TokenUsage? = null,
-		val totalsAfter: TokenTotals? = null,
-		val reason: String? = null,
+		val content: String,
+		val hiddenContent: String? = null,
+		val usage: SessionTokenUsage? = null,
 	)
 
-	private data class TokenTotals(
-		var inputTokens: Long = 0,
-		var outputTokens: Long = 0,
-		var totalTokens: Long = 0,
-		var cachedInputTokens: Long = 0,
-		var cacheCreationInputTokens: Long = 0,
-		var cacheReadInputTokens: Long = 0,
-		var reasoningTokens: Long = 0,
-		var thoughtsTokens: Long = 0,
-		var toolUsePromptTokens: Long = 0,
-	) {
-		fun add(usage: Session.TokenUsage?) {
-			if (usage == null) {
-				return
-			}
-			inputTokens += usage.inputTokens ?: 0
-			outputTokens += usage.outputTokens ?: 0
-			totalTokens += usage.totalTokens ?: 0
-			cachedInputTokens += usage.cachedInputTokens ?: 0
-			cacheCreationInputTokens += usage.cacheCreationInputTokens ?: 0
-			cacheReadInputTokens += usage.cacheReadInputTokens ?: 0
-			reasoningTokens += usage.reasoningTokens ?: 0
-			thoughtsTokens += usage.thoughtsTokens ?: 0
-			toolUsePromptTokens += usage.toolUsePromptTokens ?: 0
-		}
-	}
+	private data class ProviderCallEntry(
+		val timestamp: String,
+		val provider: String,
+		val model: String,
+		val finishReason: String? = null,
+		val usage: SessionTokenUsage? = null,
+	)
+
+	private data class ToolInvocationEntry(
+		val timestamp: String,
+		val toolName: String,
+		val toolArguments: Map<String, String>,
+		val toolResult: Map<String, Any?>,
+		val conversationMessage: String? = null,
+	)
 }

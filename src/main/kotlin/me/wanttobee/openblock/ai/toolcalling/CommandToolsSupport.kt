@@ -2,6 +2,7 @@ package me.wanttobee.openblock.ai.toolcalling
 
 import com.mojang.brigadier.tree.CommandNode
 import me.wanttobee.openblock.ai.context.PlayerContextCapturer
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import net.minecraft.commands.CommandResultCallback
 import net.minecraft.commands.CommandSource
 import net.minecraft.commands.CommandSourceStack
@@ -9,7 +10,7 @@ import net.minecraft.network.chat.Component
 import java.util.UUID
 
 object CommandToolsSupport {
-	private val allowedRoots = setOf(
+	private val defaultAllowedRoots = setOf(
 		"advancement", "attribute", "bossbar", "clear", "damage", "data", "datapack",
 		"defaultgamemode", "difficulty", "effect", "enchant", "execute", "experience", "xp",
 		"forceload", "function", "gamemode", "gamerule", "give", "item", "kill", "kick",
@@ -18,24 +19,54 @@ object CommandToolsSupport {
 		"setworldspawn", "spawnpoint", "spectate", "spreadplayers", "summon", "tag", "team",
 		"teammsg", "teleport", "tp", "tellraw", "time", "title", "trigger", "weather",
 	)
+	private val allowedRootOverrides = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
 	fun availableCommands(): List<String> {
-		val server = PlayerContextCapturer.currentServer() ?: return allowedRoots.sorted()
-		return server.commands.dispatcher.root.children
-			.map(CommandNode<CommandSourceStack>::getName)
-			.filter { it in allowedRoots }
-			.sorted()
+		return allRegisteredCommands().filter(::isAllowed)
 	}
 
-	fun documentation(playerId: UUID?, commandName: String): AiTool.ExecutionResult {
+	fun allRegisteredCommands(): List<String> {
+		val server = PlayerContextCapturer.currentServer().getOrNull()
+		return server?.commands?.dispatcher?.root?.children
+			?.map(CommandNode<CommandSourceStack>::getName)
+			?.sorted()
+			?: defaultAllowedRoots.sorted()
+	}
+
+	fun isAllowed(commandName: String): Boolean {
+		val rootName = normalizeRoot(commandName) ?: return false
+		return allowedRootOverrides[rootName] ?: defaultAllowedRoots.contains(rootName)
+	}
+
+	fun setAllowed(commandName: String, allowed: Boolean): Boolean {
+		val rootName = normalizeRoot(commandName) ?: return false
+		if (rootName !in allRegisteredCommands() && rootName !in defaultAllowedRoots) {
+			return false
+		}
+		allowedRootOverrides[rootName] = allowed
+		return true
+	}
+
+	fun commandEntries(): List<CommandEntry> {
+		return allRegisteredCommands().map { command ->
+			CommandEntry(
+				name = command,
+				allowed = isAllowed(command),
+				defaultAllowed = defaultAllowedRoots.contains(command),
+			)
+		}
+	}
+
+	fun documentation(playerId: UUID?, commandName: String): AiToolExecution {
 		val rootName = normalizeRoot(commandName)
 			?: return error("Command name cannot be blank.")
-		if (rootName !in allowedRoots) {
+		if (!isAllowed(rootName)) {
 			return error("Command is not allowed for AI documentation: $rootName")
 		}
 
-		val server = PlayerContextCapturer.currentServer()
-			?: return error("Server is not available.")
+		val server = PlayerContextCapturer.currentServer().getOrElse {
+			return error(it.message ?: "Server is not available.")
+		}
 		val dispatcher = server.commands.dispatcher
 		val node = dispatcher.root.getChild(rootName)
 			?: return error("Command is not currently registered: $rootName")
@@ -51,7 +82,7 @@ object CommandToolsSupport {
 			.distinct()
 			.sorted()
 
-		return AiTool.ExecutionResult(
+		return AiToolExecution(
 			payload = linkedMapOf(
 				"command" to rootName,
 				"available" to true,
@@ -62,7 +93,7 @@ object CommandToolsSupport {
 		)
 	}
 
-	fun execute(playerId: UUID?, command: String): AiTool.ExecutionResult {
+	fun execute(playerId: UUID?, command: String): AiToolExecution {
 		val normalizedCommand = normalizeCommand(command)
 			?: return error("Command cannot be blank.")
 		val validationError = validateExecutableCommand(normalizedCommand)
@@ -73,15 +104,16 @@ object CommandToolsSupport {
 		return runCommand(playerId, normalizedCommand)
 	}
 
-	internal fun executeInternal(playerId: UUID?, command: String): AiTool.ExecutionResult {
+	internal fun executeInternal(playerId: UUID?, command: String): AiToolExecution {
 		val normalizedCommand = normalizeCommand(command)
 			?: return error("Command cannot be blank.")
 		return runCommand(playerId, normalizedCommand)
 	}
 
-	private fun runCommand(playerId: UUID?, normalizedCommand: String): AiTool.ExecutionResult {
-		val server = PlayerContextCapturer.currentServer()
-			?: return error("Server is not available.")
+	private fun runCommand(playerId: UUID?, normalizedCommand: String): AiToolExecution {
+		val server = PlayerContextCapturer.currentServer().getOrElse {
+			return error(it.message ?: "Server is not available.")
+		}
 		val output = mutableListOf<String>()
 		var success = false
 		var resultCount = 0
@@ -94,7 +126,7 @@ object CommandToolsSupport {
 
 		return try {
 			server.commands.performPrefixedCommand(source, normalizedCommand)
-			AiTool.ExecutionResult(
+			AiToolExecution(
 				payload = linkedMapOf(
 					"command" to "/$normalizedCommand",
 					"success" to success,
@@ -157,7 +189,7 @@ object CommandToolsSupport {
 
 	private fun validateExecutableCommand(command: String): String? {
 		val rootName = command.substringBefore(' ')
-		if (rootName !in allowedRoots) {
+		if (!isAllowed(rootName)) {
 			return "Command is not allowed for AI execution: $rootName"
 		}
 
@@ -180,10 +212,16 @@ object CommandToolsSupport {
 			.ifBlank { null }
 	}
 
-	private fun error(message: String): AiTool.ExecutionResult {
-		return AiTool.ExecutionResult(
+	private fun error(message: String): AiToolExecution {
+		return AiToolExecution(
 			payload = mapOf("message" to message),
 			isError = true,
 		)
 	}
+
+	data class CommandEntry(
+		val name: String,
+		val allowed: Boolean,
+		val defaultAllowed: Boolean,
+	)
 }

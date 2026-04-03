@@ -1,12 +1,16 @@
 package me.wanttobee.openblock.ai.toolcalling.tools
 
-import me.wanttobee.openblock.ai.toolcalling.AiTool
 import me.wanttobee.openblock.ai.toolcalling.CommandToolsSupport
-import me.wanttobee.openblock.ai.toolcalling.ToolArguments
+import me.wanttobee.openblock.ai.toolcalling.base.AiTool
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolParameter
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolSuggestion
+import me.wanttobee.openblock.ai.toolcalling.base.ToolArguments
+import net.minecraft.world.item.Items
 import java.util.UUID
 
 object ExecuteCommandTool : AiTool {
-	private val commandParameter = AiTool.Parameter(
+	private val commandParameter = AiToolParameter(
 		name = "command",
 		description = "The full whitelisted command to execute, without needing to include the leading slash.",
 	)
@@ -16,30 +20,36 @@ object ExecuteCommandTool : AiTool {
 		"Executes one whitelisted command from the bound player's current location, but as the server command source."
 	override val enabledByDefault = false
 	override val parameters = listOf(commandParameter)
+	override val menuIcon = Items.COMMAND_BLOCK
+	override val hasConfigurationMenu = true
 
 	override fun suggestions(
 		playerId: UUID?,
 		parameterIndex: Int,
 		arguments: Map<String, String>,
-	): List<AiTool.Suggestion> {
+	): Result<List<AiToolSuggestion>> {
 		if (parameterIndex != 0) {
-			return emptyList()
+			return Result.success(emptyList())
 		}
 
-		return CommandToolsSupport.availableCommands().map { command ->
-			AiTool.Suggestion(command)
-		}
+		return Result.success(CommandToolsSupport.availableCommands().map { command ->
+			AiToolSuggestion(command)
+		})
 	}
 
-	override fun conversationMessage(playerId: UUID?, arguments: ToolArguments): String? {
-		val command = arguments.get<String>(commandParameter.name).trim().removePrefix("/")
-		return "executing: /$command"
+	override fun conversationMessage(playerId: UUID?, arguments: ToolArguments): Result<String?> {
+		val command = arguments.get<String>(commandParameter.name)
+			.getOrElse { return Result.failure(it) }
+			.trim()
+			.removePrefix("/")
+		return Result.success("executing: /$command")
 	}
 
-	override fun execute(playerId: UUID?, arguments: ToolArguments): AiTool.ExecutionResult {
-		return CommandToolsSupport.execute(
+	override fun execute(playerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
+		val command = arguments.get<String>(commandParameter.name).getOrElse { return Result.failure(it) }
+		return Result.success(CommandToolsSupport.execute(
 			playerId = playerId,
-			command = arguments.get(commandParameter.name),
-		)
+			command = command,
+		))
 	}
 }

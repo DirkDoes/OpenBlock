@@ -1,4 +1,4 @@
-package me.wanttobee.openblock.ai.sessions
+package me.wanttobee.openblock.sandbox
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.minecraft.core.particles.DustParticleOptions

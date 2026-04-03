@@ -16,8 +16,12 @@ import com.anthropic.models.messages.ToolChoiceAuto
 import com.anthropic.models.messages.ToolResultBlockParam
 import me.wanttobee.openblock.ai.sessions.Session
 import me.wanttobee.openblock.ai.sessions.AiModel
-import me.wanttobee.openblock.ai.toolcalling.AiTool
+import me.wanttobee.openblock.ai.sessions.base.SessionMessage
+import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
 import me.wanttobee.openblock.ai.toolcalling.ToolManager
+import me.wanttobee.openblock.ai.toolcalling.base.AiTool
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolParameter
 import me.wanttobee.openblock.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
 object AnthropicProvider : AiProvider {
@@ -47,121 +51,123 @@ object AnthropicProvider : AiProvider {
 	override fun ping() {
 		withClient { client ->
 			client.models().retrieve(defaultModel)
-		}
+		}.getOrThrow()
 	}
 
-	override fun applyReasoning(model: AiModel, value: String?): AiModel? {
-		val normalized = value?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return model
+	override fun applyReasoning(model: AiModel, value: String?): Result<AiModel> {
+		val normalized = value?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return Result.success(model)
 		val budgetTokens = when (normalized) {
 			"on", "medium" -> 4096
 			"low" -> 1024
 			"high" -> 8192
 			"off", "none" -> 0
 			else -> normalized.toIntOrNull()
-		} ?: return null
+		} ?: return Result.failure(IllegalArgumentException("Unsupported reasoning value: $normalized"))
 
 		val reasoning = if (budgetTokens == 0) {
 			AiModel.Reasoning(value = "none", budgetTokens = 0)
 		} else {
 			AiModel.Reasoning(budgetTokens = budgetTokens)
 		}
-		return model.copy(reasoning = reasoning)
+		return Result.success(model.copy(reasoning = reasoning))
 	}
 
-	override fun reasoningSuggestions(model: AiModel): List<AiProvider.ReasoningSuggestion> {
+	override fun reasoningSuggestions(model: AiModel): Result<List<AiProvider.ReasoningSuggestion>> {
 		if (!model.reasoningSupport.supportsReasoning()) {
-			return emptyList()
+			return Result.success(emptyList())
 		}
-		return listOf(
+		return Result.success(listOf(
 			AiProvider.ReasoningSuggestion("1024", "Thinking budget example: low"),
 			AiProvider.ReasoningSuggestion("4096", "Thinking budget example: medium"),
 			AiProvider.ReasoningSuggestion("8192", "Thinking budget example: high"),
 			AiProvider.ReasoningSuggestion("none", "Disable thinking"),
-		)
+		))
 	}
 
-	override fun describeReasoning(model: AiModel): String? {
-		val reasoning = model.reasoning ?: return null
+	override fun describeReasoning(model: AiModel): Result<String> {
+		val reasoning = model.reasoning ?: return Result.failure(
+			IllegalStateException("Reasoning is not configured for ${model.displayName}.")
+		)
 		if (!reasoning.isEnabled()) {
-			return "thinking off"
+			return Result.success("thinking off")
 		}
-		return reasoning.budgetTokens?.let { "thinking $it" } ?: "thinking on"
+		return Result.success(reasoning.budgetTokens?.let { "thinking $it" } ?: "thinking on")
 	}
 
 	override fun generate(
 		model: AiModel,
 		session: Session,
 		onActionChange: (String) -> Unit,
-		onMessageAdded: (Session.Message) -> Unit,
-	): Boolean {
-		return try {
-			val outcome = withClient { client ->
-				val enabledTools = enabledTools(session)
-				if (enabledTools.isEmpty()) {
-					val maxTokens = maxTokensFor(model)
-					val builder = MessageCreateParams.builder()
-						.model(model.apiName)
-						.maxTokens(maxTokens)
+		onMessageAdded: (SessionMessage) -> Unit,
+	): Result<Boolean> {
+		val result = withClient { client ->
+			val enabledTools = enabledTools(session)
+			if (enabledTools.isEmpty()) {
+				val maxTokens = maxTokensFor(model)
+				val builder = MessageCreateParams.builder()
+					.model(model.apiName)
+					.maxTokens(maxTokens)
 
-					session.effectiveSystemPrompt()?.let(builder::system)
-					applyThinking(model, builder)
+				session.effectiveSystemPrompt().getOrNull()?.let(builder::system)
+				applyThinking(model, builder)
 
-					for (message in session.messages()) {
-						when (message.type) {
-							Session.Message.Type.USER -> builder.addMessage(
-								MessageParam.builder()
-									.role(MessageParam.Role.USER)
-									.content(message.combinedContent())
-									.build()
-							)
-							Session.Message.Type.ASSISTANT -> builder.addMessage(
-								MessageParam.builder()
-									.role(MessageParam.Role.ASSISTANT)
-									.content(message.combinedContent())
-									.build()
-							)
-							Session.Message.Type.TOOL,
-							Session.Message.Type.ERROR -> Unit
-						}
+				for (message in session.messages()) {
+					when (message.type) {
+						SessionMessage.Type.USER -> builder.addMessage(
+							MessageParam.builder()
+								.role(MessageParam.Role.USER)
+								.content(message.combinedContent())
+								.build()
+						)
+						SessionMessage.Type.ASSISTANT -> builder.addMessage(
+							MessageParam.builder()
+								.role(MessageParam.Role.ASSISTANT)
+								.content(message.combinedContent())
+								.build()
+						)
+						SessionMessage.Type.TOOL,
+						SessionMessage.Type.ERROR -> Unit
 					}
-
-					val response = client.messages().create(builder.build())
-					val usage = anthropicUsage(response)
-					session.recordProviderCall(name, model.apiName, usage, "assistant")
-					GenerationOutcome(extractText(response), usage)
-				} else {
-					generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
 				}
-			}
 
+				val response = client.messages().create(builder.build())
+				val usage = anthropicUsage(response).getOrNull()
+				session.recordProviderCall(name, model.apiName, usage, "assistant")
+				GenerationOutcome(extractText(response), usage)
+			} else {
+				generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
+			}
+		}.mapCatching { outcome ->
 			session.addAssistantMessage(outcome.text, outcome.usage)
 			true
-		} catch (exception: Exception) {
-			session.addErrorMessage(exception.message ?: "Unknown error")
-			false
 		}
+
+		result.onFailure { exception ->
+			session.addErrorMessage(exception.message ?: "Unknown error")
+		}
+		return result
 	}
 
 	private fun generateWithTools(
 		client: com.anthropic.client.AnthropicClient,
 		model: AiModel,
 		session: Session,
-		enabledTools: List<me.wanttobee.openblock.ai.toolcalling.AiTool>,
+		enabledTools: List<AiTool>,
 		onActionChange: (String) -> Unit,
-		onMessageAdded: (Session.Message) -> Unit,
+		onMessageAdded: (SessionMessage) -> Unit,
 	): GenerationOutcome {
 		val conversation = session.messages().mapNotNull { message ->
 			when (message.type) {
-				Session.Message.Type.USER -> MessageParam.builder()
+				SessionMessage.Type.USER -> MessageParam.builder()
 					.role(MessageParam.Role.USER)
 					.content(message.combinedContent())
 					.build()
-				Session.Message.Type.ASSISTANT -> MessageParam.builder()
+				SessionMessage.Type.ASSISTANT -> MessageParam.builder()
 					.role(MessageParam.Role.ASSISTANT)
 					.content(message.combinedContent())
 					.build()
-				Session.Message.Type.TOOL,
-				Session.Message.Type.ERROR -> null
+				SessionMessage.Type.TOOL,
+				SessionMessage.Type.ERROR -> null
 			}
 		}.toMutableList()
 
@@ -171,13 +177,13 @@ object AnthropicProvider : AiProvider {
 				.maxTokens(maxTokensFor(model))
 				.toolChoice(ToolChoiceAuto.builder().build())
 
-			session.effectiveSystemPrompt()?.let(builder::system)
+			session.effectiveSystemPrompt().getOrNull()?.let(builder::system)
 			applyThinking(model, builder)
 			enabledTools.map(::anthropicTool).forEach(builder::addTool)
 			conversation.forEach(builder::addMessage)
 
 			val response = client.messages().create(builder.build())
-			val usage = anthropicUsage(response)
+			val usage = anthropicUsage(response).getOrNull()
 			val toolUses = response.content()
 				.filter(ContentBlock::isToolUse)
 				.map(ContentBlock::asToolUse)
@@ -199,12 +205,24 @@ object AnthropicProvider : AiProvider {
 					name = toolUse.name(),
 					arguments = arguments,
 				)
-				invocation?.conversationMessage?.let { content ->
-					session.addToolMessage(content)
-					onMessageAdded(session.lastMessage()!!)
-				}
-				val result = invocation?.execution ?: missingToolResult(toolUse.name())
-				session.recordToolInvocation(toolUse.name(), arguments, result, invocation?.conversationMessage)
+				val result = invocation.fold(
+					onSuccess = { toolInvocation ->
+						toolInvocation.conversationMessage?.let { content ->
+							session.addToolMessage(content)
+							session.lastMessage().getOrNull()?.let(onMessageAdded)
+						}
+						session.recordToolInvocation(toolUse.name(), arguments, toolInvocation.execution, toolInvocation.conversationMessage)
+						toolInvocation.execution
+					},
+					onFailure = { error ->
+						val failedResult = AiToolExecution(
+							payload = mapOf("message" to (error.message ?: "Tool invocation failed: ${toolUse.name()}")),
+							isError = true,
+						)
+						session.recordToolInvocation(toolUse.name(), arguments, failedResult, null)
+						failedResult
+					},
+				)
 
 				ContentBlockParam.ofToolResult(
 					ToolResultBlockParam.builder()
@@ -319,18 +337,18 @@ object AnthropicProvider : AiProvider {
 				.inputSchema(
 					AnthropicTool.InputSchema.builder()
 						.properties(properties)
-						.required(tool.parameters.filter(AiTool.Parameter::required).map(AiTool.Parameter::name))
+						.required(tool.parameters.filter(AiToolParameter::required).map(AiToolParameter::name))
 						.additionalProperties(mapOf("additionalProperties" to AnthropicJsonValue.from(false)))
 						.build()
 				)
 			.build()
 	}
 
-	private fun schemaProperty(parameter: AiTool.Parameter): Map<String, Any> {
+	private fun schemaProperty(parameter: AiToolParameter): Map<String, Any> {
 		return linkedMapOf(
 			"type" to when (parameter.type) {
-				AiTool.Type.STRING -> "string"
-				AiTool.Type.UUID -> "string"
+				AiToolParameter.ParameterType.STRING -> "string"
+				AiToolParameter.ParameterType.UUID -> "string"
 			},
 			"description" to parameter.description,
 		)
@@ -354,8 +372,9 @@ object AnthropicProvider : AiProvider {
 		}
 	}
 
-	private fun anthropicUsage(message: Message): Session.TokenUsage? {
-		val usage = message._usage().asKnown().orElse(null) ?: return null
+	private fun anthropicUsage(message: Message): Result<SessionTokenUsage> {
+		val usage = message._usage().asKnown().orElse(null)
+			?: return Result.failure(NoSuchElementException("Anthropic message has no usage metadata."))
 		val inputTokens = usage._inputTokens().asKnown().orElse(null)
 		val outputTokens = usage._outputTokens().asKnown().orElse(null)
 		val cacheCreationInputTokens = usage._cacheCreationInputTokens().asKnown().orElse(null)
@@ -366,39 +385,46 @@ object AnthropicProvider : AiProvider {
 			cacheCreationInputTokens,
 			cacheReadInputTokens,
 		).sum().takeIf { it > 0 }
-		return Session.TokenUsage(
+		return Result.success(SessionTokenUsage(
 			inputTokens = inputTokens,
 			outputTokens = outputTokens,
 			totalTokens = totalTokens,
 			cacheCreationInputTokens = cacheCreationInputTokens,
 			cacheReadInputTokens = cacheReadInputTokens,
-		)
+		))
 	}
 
 	private data class GenerationOutcome(
 		val text: String,
-		val usage: Session.TokenUsage? = null,
+		val usage: SessionTokenUsage? = null,
 	)
 
-	private fun AiTool.ExecutionResult.asResponseMapAsString(): String {
+	private fun AiToolExecution.asResponseMapAsString(): String {
 		return com.google.gson.Gson().toJson(asResponseMap())
 	}
 
-	private fun client() = AnthropicOkHttpClient.builder()
-		.apiKey(requiredApiKey())
+	private fun client(apiKey: String) = AnthropicOkHttpClient.builder()
+		.apiKey(apiKey)
 		.build()
 
-	private fun requiredApiKey(): String {
-		return EnvironmentVariables.get(apiKeyVariable)?.takeIf { it.isNotBlank() }
-			?: error("Missing $apiKeyVariable in ${EnvironmentVariables.OPENBLOCK_FILE_NAME} or ${EnvironmentVariables.DOTENV_FILE_NAME}.")
+	private fun requiredApiKey(): Result<String> {
+		return EnvironmentVariables.get(apiKeyVariable).mapCatching { apiKey ->
+			apiKey.takeIf { it.isNotBlank() }
+				?: throw IllegalStateException(
+					"Missing $apiKeyVariable in ${EnvironmentVariables.OPENBLOCK_FILE_NAME} or ${EnvironmentVariables.DOTENV_FILE_NAME}."
+				)
+		}
 	}
 
-	private fun <T> withClient(block: (com.anthropic.client.AnthropicClient) -> T): T {
-		val client = client()
-		try {
-			return block(client)
-		} finally {
-			client.close()
+	private fun <T> withClient(block: (com.anthropic.client.AnthropicClient) -> T): Result<T> {
+		val apiKey = requiredApiKey().getOrElse { return Result.failure(it) }
+		return runCatching {
+			val client = client(apiKey)
+			try {
+				block(client)
+			} finally {
+				client.close()
+			}
 		}
 	}
 }

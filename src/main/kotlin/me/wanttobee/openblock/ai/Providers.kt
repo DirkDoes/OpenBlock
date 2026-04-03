@@ -17,31 +17,37 @@ object Providers {
 		return all.map { provider -> provider.name }.sorted()
 	}
 
-	fun modelList(providerName: String): List<AiModel> {
-		return getProviderByName(providerName)?.models?.sortedBy { model -> model.displayName } ?: emptyList()
+	fun modelList(providerName: String): Result<List<AiModel>> {
+		return getProviderByName(providerName).map { provider ->
+			provider.models.sortedBy { model -> model.displayName }
+		}
 	}
 
-	fun resolveModel(providerName: String, modelName: String): AiModel? {
-		val provider = getProviderByName(providerName) ?: return null
-		return getModel(providerName, modelName) ?: AiModel(modelName, modelName)
+	fun resolveModel(providerName: String, modelName: String): Result<AiModel> {
+		getProviderByName(providerName).getOrElse { return Result.failure(it) }
+		return Result.success(getModel(providerName, modelName).getOrElse { AiModel(modelName, modelName) })
 	}
 
-	fun reasoningSuggestions(providerName: String, modelName: String): List<AiProvider.ReasoningSuggestion> {
-		val provider = getProviderByName(providerName) ?: return emptyList()
-		val model = resolveModel(providerName, modelName) ?: return emptyList()
+	fun reasoningSuggestions(providerName: String, modelName: String): Result<List<AiProvider.ReasoningSuggestion>> {
+		val provider = getProviderByName(providerName).getOrElse { return Result.failure(it) }
+		val model = resolveModel(providerName, modelName).getOrElse { return Result.failure(it) }
 		return provider.reasoningSuggestions(model)
 	}
 
-	fun getModel(providerName: String, modelName: String): AiModel? {
-		return getProviderByName(providerName)
-			?.models
-			?.firstOrNull { model ->
+	fun getModel(providerName: String, modelName: String): Result<AiModel> {
+		val provider = getProviderByName(providerName).getOrElse { return Result.failure(it) }
+		return provider.models
+			.firstOrNull { model ->
 				model.apiName.equals(modelName, ignoreCase = true) ||
 					model.displaySlug.equals(modelName, ignoreCase = true)
 			}
+			?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("Unknown model '$modelName' for provider '$providerName'."))
 	}
 
-	fun getProviderByName(providerName: String): AiProvider? {
+	fun getProviderByName(providerName: String): Result<AiProvider> {
 		return all.firstOrNull { provider -> provider.name.equals(providerName, ignoreCase = true) }
+			?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("Unknown AI provider: $providerName"))
 	}
 }

@@ -5,8 +5,9 @@ import com.google.gson.JsonParser
 import com.mojang.brigadier.StringReader
 import com.mojang.brigadier.exceptions.CommandSyntaxException
 import me.wanttobee.openblock.ai.context.PlayerContextCapturer
-import me.wanttobee.openblock.ai.sessions.SandboxManager
-import me.wanttobee.openblock.ai.sessions.SandboxRegion
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
+import me.wanttobee.openblock.sandbox.SandboxManager
+import me.wanttobee.openblock.sandbox.SandboxRegion
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument
@@ -23,7 +24,7 @@ object BlockPlacementToolsSupport {
 		from: String,
 		to: String,
 		mode: String?,
-	): AiTool.ExecutionResult {
+	): AiToolExecution {
 		val contextResult = toolContext(playerId)
 		val context = contextResult.value ?: return error(contextResult.error ?: "Unknown tool context error.")
 		val fromPosition = parseBlockPos(context.source, from)
@@ -64,7 +65,7 @@ object BlockPlacementToolsSupport {
 			val blocks = linePositions.map { position ->
 				blockIdOrNull(level.getBlockState(position))
 			}
-			return AiTool.ExecutionResult(
+			return AiToolExecution(
 				payload = linkedMapOf(
 					"mode" to "ray",
 					"from" to formatPos(requestedRegion.minCorner()),
@@ -94,7 +95,7 @@ object BlockPlacementToolsSupport {
 			)
 		}
 
-		return AiTool.ExecutionResult(
+		return AiToolExecution(
 			payload = linkedMapOf(
 				"mode" to "area",
 				"from" to formatPos(requestedRegion.minCorner()),
@@ -110,7 +111,7 @@ object BlockPlacementToolsSupport {
 	fun getBlockDetails(
 		playerId: UUID?,
 		position: String,
-	): AiTool.ExecutionResult {
+	): AiToolExecution {
 		val contextResult = toolContext(playerId)
 		val context = contextResult.value ?: return error(contextResult.error ?: "Unknown tool context error.")
 		val targetPosition = parseBlockPos(context.source, position)
@@ -139,7 +140,7 @@ object BlockPlacementToolsSupport {
 				}
 			}
 
-		return AiTool.ExecutionResult(
+		return AiToolExecution(
 			payload = linkedMapOf(
 				"position" to formatPos(targetPosition),
 				"block" to blockId,
@@ -154,7 +155,7 @@ object BlockPlacementToolsSupport {
 		position: String,
 		block: String,
 		properties: String?,
-	): AiTool.ExecutionResult {
+	): AiToolExecution {
 		val contextResult = toolContext(playerId)
 		val context = contextResult.value ?: return error(contextResult.error ?: "Unknown tool context error.")
 		val targetPosition = parseBlockPos(context.source, position)
@@ -177,7 +178,7 @@ object BlockPlacementToolsSupport {
 		to: String,
 		block: String,
 		properties: String?,
-	): AiTool.ExecutionResult {
+	): AiToolExecution {
 		val contextResult = toolContext(playerId)
 		val context = contextResult.value ?: return error(contextResult.error ?: "Unknown tool context error.")
 		val fromPosition = parseBlockPos(context.source, from)
@@ -191,7 +192,7 @@ object BlockPlacementToolsSupport {
 			firstCorner = fromPosition.immutable(),
 			secondCorner = toPosition.immutable(),
 		)
-		val sandbox = playerId?.let(SandboxManager::getSandbox)
+		val sandbox = playerId?.let { scopedPlayerId -> SandboxManager.getSandbox(scopedPlayerId).getOrNull() }
 		if (sandbox == null) {
 			return CommandToolsSupport.executeInternal(
 				playerId = playerId,
@@ -211,8 +212,9 @@ object BlockPlacementToolsSupport {
 	}
 
 	private fun toolContext(playerId: UUID?): ToolContextResult {
-		val server = PlayerContextCapturer.currentServer()
-			?: return ToolContextResult(error = "Server is not available.")
+		val server = PlayerContextCapturer.currentServer().getOrElse {
+			return ToolContextResult(error = it.message ?: "Server is not available.")
+		}
 		if (playerId == null) {
 			return ToolContextResult(value = ToolContext(CommandToolsSupport.createCommandSource(server, null)))
 		}
@@ -389,8 +391,8 @@ object BlockPlacementToolsSupport {
 		return "${position.x} ${position.y} ${position.z}"
 	}
 
-	private fun error(message: String): AiTool.ExecutionResult {
-		return AiTool.ExecutionResult(
+	private fun error(message: String): AiToolExecution {
+		return AiToolExecution(
 			payload = mapOf("message" to message),
 			isError = true,
 		)

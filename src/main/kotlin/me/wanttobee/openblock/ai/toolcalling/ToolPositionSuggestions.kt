@@ -1,10 +1,11 @@
 package me.wanttobee.openblock.ai.toolcalling
 
 import me.wanttobee.openblock.ai.context.PlayerContextCapturer
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolSuggestion
 import java.util.UUID
 
 object ToolPositionSuggestions {
-	fun positionSuggestions(playerId: UUID?): List<AiTool.Suggestion> {
+	fun positionSuggestions(playerId: UUID?): List<AiToolSuggestion> {
 		val suggestions = linkedMapOf<String, String?>()
 
 		suggestions["~,~,~"] = "Current player position"
@@ -13,21 +14,21 @@ object ToolPositionSuggestions {
 		suggestions["^,^,^20"] = "Twenty blocks forward from where the player is looking"
 
 		val player = playerId
-			?.let { id -> PlayerContextCapturer.currentServer()?.playerList?.getPlayer(id) }
+			?.let { id -> PlayerContextCapturer.currentServer().getOrNull()?.playerList?.getPlayer(id) }
 		if (player != null) {
 			val blockPos = player.blockPosition()
 			suggestions["${blockPos.x},${blockPos.y},${blockPos.z}"] = "Current player block position"
 		}
 
 		PlayerContextCapturer.capture(playerId ?: return suggestions.map { (value, description) ->
-			AiTool.Suggestion(value, description)
-		})?.lookingAt?.let { lookedAt ->
+			AiToolSuggestion(value, description)
+		}).getOrNull()?.lookingAt?.let { lookedAt ->
 			suggestions["${lookedAt.positionX},${lookedAt.positionY},${lookedAt.positionZ}"] =
 				"Block the player is currently looking at"
 		}
 
 		return suggestions.map { (value, description) ->
-			AiTool.Suggestion(value, description)
-		}
+			AiToolSuggestion(value, description)
 	}
+}
 }

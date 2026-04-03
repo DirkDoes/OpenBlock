@@ -9,20 +9,23 @@ object AiTargetManager {
 	private val selectedTargets = ConcurrentHashMap<UUID, AiTarget>()
 	private val lastSelectedTargetsByPlayer = ConcurrentHashMap<UUID, ConcurrentHashMap<String, AiTarget>>()
 
-	fun currentTarget(playerId: UUID): AiTarget? = selectedTargets[playerId]
+	fun currentTarget(playerId: UUID): Result<AiTarget> {
+		return selectedTargets[playerId]?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("No AI model selected."))
+	}
 
-	fun selectTarget(playerId: UUID, providerName: String, modelId: String?, reasoningValue: String? = null): AiTarget? {
-		val provider = Providers.getProviderByName(providerName) ?: return null
+	fun selectTarget(playerId: UUID, providerName: String, modelId: String?, reasoningValue: String? = null): Result<AiTarget> {
+		val provider = Providers.getProviderByName(providerName).getOrElse { return Result.failure(it) }
 		val playerTargets = lastSelectedTargetsFor(playerId)
 		val target = modelId?.trim().takeUnless { it.isNullOrEmpty() }?.let { requestedModel ->
-			val baseModel = Providers.resolveModel(providerName, requestedModel) ?: AiModel(requestedModel, requestedModel)
-			val selectedModel = provider.resolveReasoning(baseModel, reasoningValue) ?: return null
+			val baseModel = Providers.resolveModel(providerName, requestedModel).getOrElse { AiModel(requestedModel, requestedModel) }
+			val selectedModel = provider.resolveReasoning(baseModel, reasoningValue).getOrElse { return Result.failure(it) }
 			AiTarget(provider, selectedModel)
 		} ?: playerTargets[provider.name]?.let { existingTarget ->
 			if (reasoningValue.isNullOrBlank()) {
 				existingTarget
 			} else {
-				val selectedModel = provider.resolveReasoning(existingTarget.model, reasoningValue) ?: return null
+				val selectedModel = provider.resolveReasoning(existingTarget.model, reasoningValue).getOrElse { return Result.failure(it) }
 				AiTarget(provider, selectedModel)
 			}
 		}
@@ -30,7 +33,7 @@ object AiTargetManager {
 
 		playerTargets[provider.name] = target
 		selectedTargets[playerId] = target
-		return target
+		return Result.success(target)
 	}
 
 	private fun lastSelectedTargetsFor(playerId: UUID): ConcurrentHashMap<String, AiTarget> {
@@ -44,9 +47,9 @@ object AiTargetManager {
 	}
 
 	private fun defaultTargetFor(providerName: String, provider: AiProvider): AiTarget {
-		val defaultModel = Providers.getModel(providerName, provider.defaultModel)
+		val defaultModel = Providers.getModel(providerName, provider.defaultModel).getOrNull()
 		return if (defaultModel != null) {
-			AiTarget(provider, provider.resolveReasoning(defaultModel, null) ?: defaultModel)
+			AiTarget(provider, provider.resolveReasoning(defaultModel, null).getOrElse { defaultModel })
 		} else {
 			AiTarget(provider, AiModel(provider.defaultModel, provider.defaultModel))
 		}

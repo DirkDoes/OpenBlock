@@ -1,8 +1,10 @@
-package me.wanttobee.openblock.commands
+package me.wanttobee.openblock.interfaces.commands
 
 import com.mojang.brigadier.CommandDispatcher
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.suggestion.SuggestionsBuilder
+import me.wanttobee.openblock.interfaces.menu.examplemenu.ExampleMenu
+import me.wanttobee.openblock.interfaces.menu.openblockmenu.OpenBlockMenu
 import me.wanttobee.openblock.util.EnvironmentVariables
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
 import net.minecraft.ChatFormatting
@@ -19,7 +21,18 @@ object Commands {
 
 		CommandRegistrationCallback.EVENT.register { dispatcher, _, _ ->
 			registerEnvCommand(dispatcher)
+			registerOpenBlockCommand(dispatcher)
+			registerExampleMenuCommand(dispatcher)
 			AiCommands.register(dispatcher)
+		}
+	}
+
+	internal fun isAdminSource(source: CommandSourceStack): Boolean {
+		val player = source.player
+		return if (player == null) {
+			true
+		} else {
+			source.server.playerList.isOp(NameAndId(player.gameProfile))
 		}
 	}
 
@@ -71,6 +84,45 @@ object Commands {
 		)
 	}
 
+	private fun registerOpenBlockCommand(dispatcher: CommandDispatcher<CommandSourceStack>) {
+		val root = MinecraftCommands.literal("openblock")
+			.requires(::isAdminSource)
+			.executes { context ->
+				val player = context.source.player
+				if (player == null) {
+					context.source.sendFailure(
+						Component.literal("Only players can open the OpenBlock menu.").withStyle(ChatFormatting.RED)
+					)
+					return@executes 0
+				}
+
+				OpenBlockMenu.open(player)
+				1
+			}
+
+		AiCommands.attachOpenBlockCommands(root)
+		dispatcher.register(root)
+	}
+
+	private fun registerExampleMenuCommand(dispatcher: CommandDispatcher<CommandSourceStack>) {
+		dispatcher.register(
+			MinecraftCommands.literal("examplemenu")
+				.requires(::isAdminSource)
+				.executes { context ->
+					val player = context.source.player
+					if (player == null) {
+						context.source.sendFailure(
+							Component.literal("Only players can open the example menu.").withStyle(ChatFormatting.RED)
+						)
+						return@executes 0
+					}
+
+					ExampleMenu.open(player)
+					1
+				}
+		)
+	}
+
 	private fun sendEnvironmentVariables(source: CommandSourceStack) {
 		val variables = EnvironmentVariables.read()
 
@@ -102,9 +154,8 @@ object Commands {
 	}
 
 	private fun revealEnvironmentVariable(source: CommandSourceStack, key: String) {
-		val value = EnvironmentVariables.reveal(key)
-		if (value == null) {
-			source.sendFailure(Component.literal("Unknown environment variable: $key").withStyle(ChatFormatting.RED))
+		val value = EnvironmentVariables.reveal(key).getOrElse {
+			source.sendFailure(Component.literal(it.message ?: "Unknown environment variable: $key").withStyle(ChatFormatting.RED))
 			return
 		}
 
@@ -118,8 +169,7 @@ object Commands {
 	}
 
 	private fun setEnvironmentVariable(source: CommandSourceStack, key: String, rawValue: String) {
-		val parsedValue = EnvironmentVariables.parseQuotedValue(rawValue)
-		if (parsedValue == null) {
+		val parsedValue = EnvironmentVariables.parseQuotedValue(rawValue).getOrElse {
 			source.sendFailure(
 				Component.literal("Value must be wrapped in double quotes, for example: /env set $key \"value\"")
 					.withStyle(ChatFormatting.RED)

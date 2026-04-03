@@ -11,8 +11,12 @@ import com.google.genai.types.Schema
 import com.google.genai.types.ThinkingConfig
 import me.wanttobee.openblock.ai.sessions.Session
 import me.wanttobee.openblock.ai.sessions.AiModel
-import me.wanttobee.openblock.ai.toolcalling.AiTool
+import me.wanttobee.openblock.ai.sessions.base.SessionMessage
+import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
 import me.wanttobee.openblock.ai.toolcalling.ToolManager
+import me.wanttobee.openblock.ai.toolcalling.base.AiTool
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolParameter
 import me.wanttobee.openblock.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
 
@@ -49,16 +53,17 @@ object GoogleAiProvider : AiProvider {
 	override fun ping() {
 		withClient { client ->
 			client.models.get("models/$defaultModel", null)
-		}
+		}.getOrThrow()
 	}
 
-	override fun applyReasoning(model: AiModel, value: String?): AiModel? {
-		val normalized = value?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return model
+	override fun applyReasoning(model: AiModel, value: String?): Result<AiModel> {
+		val normalized = value?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return Result.success(model)
 		val support = model.reasoningSupport
 		if (!support.supportsReasoning()) {
-			return normalized.toIntOrNull()?.let { budget ->
+			val reasoning = normalized.toIntOrNull()?.let { budget ->
 				model.copy(reasoning = AiModel.Reasoning(budgetTokens = budget))
 			} ?: model.copy(reasoning = AiModel.Reasoning(value = normalized))
+			return Result.success(reasoning)
 		}
 		val reasoning = when (support.kind) {
 			AiModel.ReasoningSupport.Kind.TEXT -> when (normalized) {
@@ -76,16 +81,16 @@ object GoogleAiProvider : AiProvider {
 			AiModel.ReasoningSupport.Kind.UNSUPPORTED -> null
 		}
 		if (reasoning == null) {
-			return null
+			return Result.failure(IllegalArgumentException("Unsupported reasoning value: $normalized"))
 		}
-		return model.copy(reasoning = reasoning)
+		return Result.success(model.copy(reasoning = reasoning))
 	}
 
-	override fun reasoningSuggestions(model: AiModel): List<AiProvider.ReasoningSuggestion> {
+	override fun reasoningSuggestions(model: AiModel): Result<List<AiProvider.ReasoningSuggestion>> {
 		val support = model.reasoningSupport
-		if (!support.supportsReasoning()) {
-			return emptyList()
-		}
+		if (!support.supportsReasoning())
+			return Result.success(emptyList())
+
 		val suggestions = when (support.kind) {
 			AiModel.ReasoningSupport.Kind.TEXT -> support.values.map { value ->
 				AiProvider.ReasoningSuggestion(value, "Thinking level: $value")
@@ -104,74 +109,76 @@ object GoogleAiProvider : AiProvider {
 		if (support.allowsNone) {
 			suggestions += AiProvider.ReasoningSuggestion("none", "Disable thinking")
 		}
-		return suggestions
+		return Result.success(suggestions)
 	}
 
-	override fun describeReasoning(model: AiModel): String? {
-		val reasoning = model.reasoning ?: return null
+	override fun describeReasoning(model: AiModel): Result<String> {
+		val reasoning = model.reasoning ?: return Result.failure(
+			IllegalStateException("Reasoning is not configured for ${model.displayName}.")
+		)
 		if (!reasoning.isEnabled()) {
-			return "thinking off"
+			return Result.success("thinking off")
 		}
-		return when {
+		return Result.success(when {
 			reasoning.value != null -> "thinking ${reasoning.value}"
 			reasoning.budgetTokens != null -> "thinking ${reasoning.budgetTokens}"
 			else -> "thinking on"
-		}
+		})
 	}
 
 	override fun generate(
 		model: AiModel,
 		session: Session,
 		onActionChange: (String) -> Unit,
-		onMessageAdded: (Session.Message) -> Unit,
-	): Boolean {
-		return try {
-			val outcome = withClient { client ->
-				val enabledTools = enabledTools(session)
-				if (enabledTools.isEmpty()) {
-					val config = GenerateContentConfig.builder().apply {
-						session.effectiveSystemPrompt()?.let { prompt ->
-							systemInstruction(
-								Content.builder()
-									.parts(Part.builder().text(prompt).build())
-									.build()
-							)
-						}
-						applyThinking(model)
-					}.build()
-					val response = client.models.generateContent(model.apiName, toContents(session), config)
-					val usage = googleUsage(response)
-					session.recordProviderCall(name, model.apiName, usage, "assistant")
-					GenerationOutcome(
-						response.text()?.takeIf { it.isNotBlank() } ?: "Google returned an empty response.",
-						usage,
-					)
-				} else {
-					generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
-				}
+		onMessageAdded: (SessionMessage) -> Unit,
+	): Result<Boolean> {
+		val result = withClient { client ->
+			val enabledTools = enabledTools(session)
+			if (enabledTools.isEmpty()) {
+				val config = GenerateContentConfig.builder().apply {
+					session.effectiveSystemPrompt().getOrNull()?.let { prompt ->
+						systemInstruction(
+							Content.builder()
+								.parts(Part.builder().text(prompt).build())
+								.build()
+						)
+					}
+					applyThinking(model)
+				}.build()
+				val response = client.models.generateContent(model.apiName, toContents(session), config)
+				val usage = googleUsage(response).getOrNull()
+				session.recordProviderCall(name, model.apiName, usage, "assistant")
+				GenerationOutcome(
+					response.text()?.takeIf { it.isNotBlank() } ?: "Google returned an empty response.",
+					usage,
+				)
+			} else {
+				generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
 			}
-
+		}.mapCatching { outcome ->
 			session.addAssistantMessage(outcome.text, outcome.usage)
 			true
-		} catch (exception: Exception) {
-			session.addErrorMessage(formatException(exception))
-			false
 		}
+
+		result.onFailure { exception ->
+			session.addErrorMessage(formatException(exception))
+		}
+		return result
 	}
 
 	private fun generateWithTools(
 		client: Client,
 		model: AiModel,
 		session: Session,
-		enabledTools: List<me.wanttobee.openblock.ai.toolcalling.AiTool>,
+		enabledTools: List<AiTool>,
 		onActionChange: (String) -> Unit,
-		onMessageAdded: (Session.Message) -> Unit,
+		onMessageAdded: (SessionMessage) -> Unit,
 	): GenerationOutcome {
 		val conversation = toContents(session).toMutableList()
 
 		repeat(AiProvider.MAX_TOOL_CALLS) {
 			val config = GenerateContentConfig.builder().apply {
-				session.effectiveSystemPrompt()?.let { prompt ->
+				session.effectiveSystemPrompt().getOrNull()?.let { prompt ->
 					systemInstruction(
 						Content.builder()
 							.parts(Part.builder().text(prompt).build())
@@ -188,7 +195,7 @@ object GoogleAiProvider : AiProvider {
 			}.build()
 
 			val response = client.models.generateContent(model.apiName, conversation, config)
-			val usage = googleUsage(response)
+			val usage = googleUsage(response).getOrNull()
 			val functionCalls = response.functionCalls() ?: emptyList()
 			if (functionCalls.isEmpty()) {
 				onActionChange("generating")
@@ -218,12 +225,24 @@ object GoogleAiProvider : AiProvider {
 					name = toolName,
 					arguments = arguments,
 				)
-				invocation?.conversationMessage?.let { content ->
-					session.addToolMessage(content)
-					onMessageAdded(session.lastMessage()!!)
-				}
-				val result = invocation?.execution ?: missingToolResult(toolName)
-				session.recordToolInvocation(toolName, arguments, result, invocation?.conversationMessage)
+				val result = invocation.fold(
+					onSuccess = { toolInvocation ->
+						toolInvocation.conversationMessage?.let { content ->
+							session.addToolMessage(content)
+							session.lastMessage().getOrNull()?.let(onMessageAdded)
+						}
+						session.recordToolInvocation(toolName, arguments, toolInvocation.execution, toolInvocation.conversationMessage)
+						toolInvocation.execution
+					},
+					onFailure = { error ->
+						val failedResult = AiToolExecution(
+							payload = mapOf("message" to (error.message ?: "Tool invocation failed: $toolName")),
+							isError = true,
+						)
+						session.recordToolInvocation(toolName, arguments, failedResult, null)
+						failedResult
+					},
+				)
 
 				Part.builder()
 					.functionResponse(
@@ -328,8 +347,8 @@ object GoogleAiProvider : AiProvider {
 		val parameters = Schema.builder()
 			.type("OBJECT")
 			.properties(properties)
-			.required(tool.parameters.filter(AiTool.Parameter::required).map(AiTool.Parameter::name))
-			.propertyOrdering(tool.parameters.map(AiTool.Parameter::name))
+			.required(tool.parameters.filter(AiToolParameter::required).map(AiToolParameter::name))
+			.propertyOrdering(tool.parameters.map(AiToolParameter::name))
 			.build()
 
 		return com.google.genai.types.Tool.builder()
@@ -343,7 +362,7 @@ object GoogleAiProvider : AiProvider {
 			.build()
 	}
 
-	private fun googleFunctionResponsePayload(result: AiTool.ExecutionResult): Map<String, Any?> {
+	private fun googleFunctionResponsePayload(result: AiToolExecution): Map<String, Any?> {
 		return if (result.isError) {
 			mapOf("error" to result.payload)
 		} else {
@@ -351,59 +370,65 @@ object GoogleAiProvider : AiProvider {
 		}
 	}
 
-	private fun formatException(exception: Exception): String {
+	private fun formatException(exception: Throwable): String {
 		return exception.message?.takeIf { it.isNotBlank() }
 			?: exception.toString()
 	}
 
-	private fun googleUsage(response: com.google.genai.types.GenerateContentResponse): Session.TokenUsage? {
-		val usage = response.usageMetadata().orElse(null) ?: return null
-		return Session.TokenUsage(
+	private fun googleUsage(response: com.google.genai.types.GenerateContentResponse): Result<SessionTokenUsage> {
+		val usage = response.usageMetadata().orElse(null)
+			?: return Result.failure(NoSuchElementException("Google response has no usage metadata."))
+		return Result.success(SessionTokenUsage(
 			inputTokens = usage.promptTokenCount().orElse(null)?.toLong(),
 			outputTokens = usage.candidatesTokenCount().orElse(null)?.toLong(),
 			totalTokens = usage.totalTokenCount().orElse(null)?.toLong(),
 			cacheReadInputTokens = usage.cachedContentTokenCount().orElse(null)?.toLong(),
 			thoughtsTokens = usage.thoughtsTokenCount().orElse(null)?.toLong(),
 			toolUsePromptTokens = usage.toolUsePromptTokenCount().orElse(null)?.toLong(),
-		)
+		))
 	}
 
 	private data class GenerationOutcome(
 		val text: String,
-		val usage: Session.TokenUsage? = null,
+		val usage: SessionTokenUsage? = null,
 	)
 
-	private fun client() = Client.builder()
-		.apiKey(requiredApiKey())
+	private fun client(apiKey: String) = Client.builder()
+		.apiKey(apiKey)
 		.build()
 
-	private fun requiredApiKey(): String {
-		return EnvironmentVariables.get(apiKeyVariable)?.takeIf { it.isNotBlank() }
-			?: error("Missing $apiKeyVariable in ${EnvironmentVariables.OPENBLOCK_FILE_NAME} or ${EnvironmentVariables.DOTENV_FILE_NAME}.")
+	private fun requiredApiKey(): Result<String> {
+		return EnvironmentVariables.get(apiKeyVariable).mapCatching { apiKey ->
+			apiKey.takeIf { it.isNotBlank() }
+				?: throw IllegalStateException(
+					"Missing $apiKeyVariable in ${EnvironmentVariables.OPENBLOCK_FILE_NAME} or ${EnvironmentVariables.DOTENV_FILE_NAME}."
+				)
+		}
 	}
 
-	private fun <T> withClient(block: (Client) -> T): T {
-		val client = client()
-		try {
-			return block(client)
-		} finally {
-			client.close()
+	private fun <T> withClient(block: (Client) -> T): Result<T> {
+		val apiKey = requiredApiKey().getOrElse { return Result.failure(it) }
+		return runCatching {
+			val client = client(apiKey)
+            client.use { client ->
+                block(client)
+            }
 		}
 	}
 
 	private fun toContents(session: Session): List<Content> {
 		return session.messages().mapNotNull { message ->
 			when (message.type) {
-				Session.Message.Type.USER -> Content.builder()
+				SessionMessage.Type.USER -> Content.builder()
 					.role("user")
 					.parts(Part.builder().text(message.combinedContent()).build())
 					.build()
-				Session.Message.Type.ASSISTANT -> Content.builder()
+				SessionMessage.Type.ASSISTANT -> Content.builder()
 					.role("model")
 					.parts(Part.builder().text(message.combinedContent()).build())
 					.build()
-				Session.Message.Type.TOOL,
-				Session.Message.Type.ERROR -> null
+				SessionMessage.Type.TOOL,
+				SessionMessage.Type.ERROR -> null
 			}
 		}
 	}

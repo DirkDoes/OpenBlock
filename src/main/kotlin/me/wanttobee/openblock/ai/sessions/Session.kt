@@ -1,27 +1,51 @@
 package me.wanttobee.openblock.ai.sessions
 
 import me.wanttobee.openblock.ai.context.PlayerContextCapturer
-import me.wanttobee.openblock.ai.toolcalling.AiTool
+import me.wanttobee.openblock.ai.sessions.base.SessionMessage
+import me.wanttobee.openblock.ai.sessions.base.SessionSummary
+import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
+import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
+import me.wanttobee.openblock.sandbox.SandboxManager
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 
 class Session(
 	val id: UUID = UUID.randomUUID(),
+	val ownerPlayerId: UUID,
 	val systemPrompt: String? = null,
 	val boundPlayerId: UUID? = null,
 ) {
-	private val messages = CopyOnWriteArrayList<Message>()
+	private val messages = CopyOnWriteArrayList<SessionMessage>()
 	private var lastSandboxUpdateVersion: Long = 0L
 
-	fun messages(): List<Message> = messages.toList()
-	fun lastMessage(): Message? = messages.lastOrNull()
-	fun effectiveSystemPrompt(): String? {
+	fun messages(): List<SessionMessage> = messages.toList()
+	fun lastMessage(): Result<SessionMessage> {
+		return messages.lastOrNull()?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("Session has no messages."))
+	}
+	fun userMessageCount(): Int = messages.count { it.type == SessionMessage.Type.USER }
+	fun firstUserMessage(): Result<String> {
+		return messages.firstOrNull { it.type == SessionMessage.Type.USER }?.content?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("Session has no user messages."))
+	}
+	fun summary(): SessionSummary {
+		return SessionSummary(
+			id = id,
+			ownerPlayerId = ownerPlayerId,
+			boundPlayerId = boundPlayerId,
+			systemPrompt = systemPrompt,
+			userMessageCount = userMessageCount(),
+			firstUserMessage = firstUserMessage().getOrNull(),
+		)
+	}
+	fun effectiveSystemPrompt(): Result<String> {
 		val basePrompt = systemPrompt?.trim().orEmpty()
 		if (boundPlayerId == null) {
-			return basePrompt.ifBlank { null }
+			return basePrompt.takeIf { it.isNotBlank() }?.let(Result.Companion::success)
+				?: Result.failure(NoSuchElementException("Session has no effective system prompt."))
 		}
 
-		val username = PlayerContextCapturer.capture(boundPlayerId)?.username
+		val username = PlayerContextCapturer.capture(boundPlayerId).getOrNull()?.username
 		val bindingPrompt =
 			"Session binding: this conversation is with player UUID $boundPlayerId" +
 				(username?.let { " (username: $it)" } ?: "") +
@@ -32,18 +56,20 @@ class Session(
 				"hp(...), xp(...), and hunger(...).\n" +
 				"Treat that prefix as authoritative context about the player speaking to you."
 
-		return listOf(basePrompt, bindingPrompt)
+		val prompt = listOf(basePrompt, bindingPrompt)
 			.filter { it.isNotBlank() }
 			.joinToString("\n\n")
+		return prompt.takeIf { it.isNotBlank() }?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("Session has no effective system prompt."))
 	}
 
 	fun addUserMessage(content: String) {
 		val hiddenParts = mutableListOf<String>()
 		boundPlayerId
-			?.let(PlayerContextCapturer::capture)
+			?.let { playerId -> PlayerContextCapturer.capture(playerId).getOrNull() }
 			?.let { context -> hiddenParts += context.promptPrefix() }
 		boundPlayerId
-			?.let(SandboxManager::latestUpdate)
+			?.let { playerId -> SandboxManager.latestUpdate(playerId).getOrNull() }
 			?.takeIf { update -> update.version > lastSandboxUpdateVersion }
 			?.let { update ->
 				hiddenParts += update.description
@@ -53,37 +79,45 @@ class Session(
 			.filter { part -> part.isNotBlank() }
 			.joinToString("\n")
 			.ifBlank { null }
-		val message = Message(
-			type = Message.Type.USER,
+		val message = SessionMessage(
+			type = SessionMessage.Type.USER,
 			content = content,
 			hiddenContent = hiddenContent,
 		)
 		messages += message
 		SessionLogger.logMessage(this, message)
+		AiSessionManager.updateSession(this)
 	}
 
-	fun addAssistantMessage(content: String, usage: TokenUsage? = null) {
-		val message = Message(Message.Type.ASSISTANT, content, usage = usage)
+	fun addAssistantMessage(content: String, usage: SessionTokenUsage? = null) {
+		val message = SessionMessage(SessionMessage.Type.ASSISTANT, content, usage = usage)
 		messages += message
 		SessionLogger.logMessage(this, message)
+		AiSessionManager.updateSession(this)
 	}
 
 	fun addToolMessage(content: String) {
-		val message = Message(Message.Type.TOOL, content)
+		val message = SessionMessage(SessionMessage.Type.TOOL, content)
 		messages += message
 		SessionLogger.logMessage(this, message)
+		AiSessionManager.updateSession(this)
 	}
 
-	fun addErrorMessage(content: String, usage: TokenUsage? = null) {
-		val message = Message(Message.Type.ERROR, content, usage = usage)
+	fun addErrorMessage(content: String, usage: SessionTokenUsage? = null) {
+		val message = SessionMessage(SessionMessage.Type.ERROR, content, usage = usage)
 		messages += message
 		SessionLogger.logMessage(this, message)
+		AiSessionManager.updateSession(this)
+	}
+
+	fun appendPersistedMessage(message: SessionMessage) {
+		messages += message
 	}
 
 	fun recordProviderCall(
 		provider: String,
 		model: String,
-		usage: TokenUsage? = null,
+		usage: SessionTokenUsage? = null,
 		finishReason: String? = null,
 	) {
 		SessionLogger.logProviderCall(this, provider, model, usage, finishReason)
@@ -92,39 +126,10 @@ class Session(
 	fun recordToolInvocation(
 		toolName: String,
 		arguments: Map<String, String>,
-		result: AiTool.ExecutionResult,
+		result: AiToolExecution,
 		conversationMessage: String? = null,
 	) {
 		SessionLogger.logToolInvocation(this, toolName, arguments, result, conversationMessage)
 	}
 
-	data class Message(
-		val type: Type,
-		val content: String,
-		val hiddenContent: String? = null,
-		val usage: TokenUsage? = null,
-	) {
-		fun combinedContent(): String {
-			return hiddenContent?.takeIf { it.isNotBlank() }?.let { "$it\n$content" } ?: content
-		}
-
-		enum class Type {
-			USER,
-			TOOL,
-			ASSISTANT,
-			ERROR,
-		}
-	}
-
-	data class TokenUsage(
-		val inputTokens: Long? = null,
-		val outputTokens: Long? = null,
-		val totalTokens: Long? = null,
-		val cachedInputTokens: Long? = null,
-		val cacheCreationInputTokens: Long? = null,
-		val cacheReadInputTokens: Long? = null,
-		val reasoningTokens: Long? = null,
-		val thoughtsTokens: Long? = null,
-		val toolUsePromptTokens: Long? = null,
-	)
 }
