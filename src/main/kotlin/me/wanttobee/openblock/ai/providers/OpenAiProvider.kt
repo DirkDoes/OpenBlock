@@ -48,7 +48,6 @@ object OpenAiProvider : AiProvider {
 	override val name = "openai"
 	override val displayName = "OpenAI"
 	override val apiKeyVariable = "OPENAI_API_KEY"
-	override val modelVariable = "OPENAI_MODEL"
 	override val defaultModel = "gpt-5-nano-2025-08-07"
 	override val models = listOf(
 		AiModel("gpt-5.4-mini", "GPT-5.4 Mini", reasoningSupport = gptFiveFourReasoningSupport),

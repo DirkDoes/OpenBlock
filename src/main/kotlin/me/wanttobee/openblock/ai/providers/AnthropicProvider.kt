@@ -31,7 +31,6 @@ object AnthropicProvider : AiProvider {
 	override val name = "claude"
 	override val displayName = "Claude"
 	override val apiKeyVariable = "ANTHROPIC_API_KEY"
-	override val modelVariable = "ANTHROPIC_MODEL"
 	override val defaultModel = "claude-haiku-4-5"
 	override val models = listOf(
 		AiModel("claude-haiku-4-5", "Haiku 4.5"),

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   version="1.1"
+   id="svg1"
+   width="235"
+   height="277"
+   viewBox="0 0 235 277"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1">
+    <pattern
+       xlink:href="#pattern17"
+       preserveAspectRatio="xMidYMid"
+       id="pattern71"
+       patternTransform="translate(-1.675293e-6)" />
+    <pattern
+       patternUnits="userSpaceOnUse"
+       width="100.25727"
+       height="69.13924"
+       patternTransform="translate(50.833853,22.842171)"
+       preserveAspectRatio="xMidYMid"
+       id="pattern16">
+      <path
+         style="fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:1;stroke-dasharray:none;stroke-opacity:1"
+         d="M 60.152577,31.268036 0.51033689,68.263514 c 0,0 -1.123694,-26.450038 20.05362411,-39.761495 C 41.741278,15.190563 66.203237,0.58253487 66.203237,0.58253487 L 100.00051,20.809035 c 0,0 -13.052143,-6.309977 -39.847933,10.459001 z"
+         id="path16" />
+    </pattern>
+    <pattern
+       patternUnits="userSpaceOnUse"
+       width="100.25727"
+       height="69.13924"
+       patternTransform="translate(50.833853,22.842171)"
+       preserveAspectRatio="xMidYMid"
+       id="pattern17">
+      <path
+         style="fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:1;stroke-dasharray:none;stroke-opacity:1"
+         d="M 60.152577,31.268036 0.51033689,68.263514 c 0,0 -1.123694,-26.450038 20.05362411,-39.761495 C 41.741278,15.190563 66.203237,0.58253487 66.203237,0.58253487 L 100.00051,20.809035 c 0,0 -13.052143,-6.309977 -39.847933,10.459001 z"
+         id="path17" />
+    </pattern>
+    <marker
+       markerWidth="100.25727065"
+       markerHeight="69.13923645"
+       refX="66.218925"
+       refY="21.741028"
+       orient="auto"
+       id="wedge"
+       viewBox="0 0 100.25727 69.139236"
+       preserveAspectRatio="xMidYMid"
+       markerUnits="strokeWidth">
+      <rect
+         style="fill:url(#pattern71);stroke:none"
+         width="100.25727"
+         height="69.139236"
+         x="0"
+         y="0"
+         id="wedgeRect" />
+    </marker>
+    <marker
+       markerWidth="42.23736191"
+       markerHeight="72.79203796"
+       refX="-2.6498358"
+       refY="18.856838"
+       orient="auto"
+       id="innerCubeSlice"
+       viewBox="0 0 47 81"
+       preserveAspectRatio="none">
+      <path
+         id="rect78"
+         style="fill:#000000;fill-opacity:1;stroke:none"
+         d="m 0,0 46.55,26.875 v 53.75 L 0,53.75 Z" />
+    </marker>
+  </defs>
+  <g
+     id="layer1">
+    <path
+       style="display:inline;fill:#000000;fill-opacity:0;stroke:#000000;stroke-width:7.3;stroke-dasharray:none;stroke-opacity:1"
+       id="outerPath"
+       d="M 116.85,259.6 L 9.64,197.7 L 9.64,73.9 L 116.85,12.0 L 224.06,73.9 L 224.06,197.7 Z" />
+    <path
+       id="wedgePath"
+       style="fill:none;fill-opacity:0;stroke:none;stroke-width:1;stroke-dasharray:none;stroke-opacity:0;marker-start:url(#wedge);marker-mid:url(#wedge);marker-end:url(#wedge)"
+       d="m 194.53,180.65
+          c -22.425,38.841 -32.83,44.85 -77.68,44.85
+          -44.85,0 -55.255,-6.009 -77.68,-44.85
+          -22.425,-38.841 -22.425,-50.859 0,-89.7
+          22.425,-38.841 32.83,-44.85 77.68,-44.85
+          44.85,0 55.255,6.009 77.68,44.85
+          22.425,38.841 22.425,50.859 0,89.7 z" />
+    <path
+       id="innerCubePath"
+       style="fill:none;stroke:none;stroke-opacity:1;marker-start:url(#innerCubeSlice);marker-mid:url(#innerCubeSlice);marker-end:url(#innerCubeSlice)"
+       d="m 116.85,168.5
+          c -28.17,0 -42.404,-24.654 -28.319,-49.05
+          14.085,-24.396 42.553,-24.396 56.638,0
+          14.085,24.396 -0.149,49.05 -28.319,49.05 z" />
+  </g>
+</svg>

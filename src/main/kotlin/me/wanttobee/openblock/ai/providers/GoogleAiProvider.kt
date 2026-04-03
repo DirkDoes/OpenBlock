@@ -33,7 +33,6 @@ object GoogleAiProvider : AiProvider {
 	override val name = "google"
 	override val displayName = "Google"
 	override val apiKeyVariable = "GOOGLE_API_KEY"
-	override val modelVariable = "GOOGLE_MODEL"
 	override val defaultModel = "gemini-2.5-flash"
 	override val models = listOf(
 		AiModel("gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite", reasoningSupport = geminiThreeFlashSupport),

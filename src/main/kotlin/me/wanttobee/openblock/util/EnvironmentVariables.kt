@@ -95,11 +95,8 @@ object EnvironmentVariables {
 	private fun defaultContents(): String {
 		return """
 			OPENAI_API_KEY=
-			OPENAI_MODEL=gpt-5.2
 			ANTHROPIC_API_KEY=
-			ANTHROPIC_MODEL=claude-sonnet-4-20250514
 			GOOGLE_API_KEY=
-			GOOGLE_MODEL=gemini-2.5-flash
 			
 		""".trimIndent()
 	}

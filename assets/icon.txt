@@ -1,0 +1,2 @@
+There is a small artifact in the icon, and it isn’t perfectly rotated. I’m not entirely sure how these vector graphic editors work.
+Anyways, then I remembered that I don't really care too much to fix it. So feel free to make a PR and fix it :)
