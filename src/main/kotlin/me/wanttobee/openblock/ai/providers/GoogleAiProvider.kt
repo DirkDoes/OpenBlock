@@ -156,12 +156,12 @@ object GoogleAiProvider : AiProvider {
 				generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
 			}
 		}.mapCatching { outcome ->
-			session.addAssistantMessage(outcome.text, outcome.usage)
+			session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName)
 			true
 		}
 
 		result.onFailure { exception ->
-			session.addErrorMessage(formatException(exception))
+			session.addErrorMessage(formatException(exception), providerName = name, modelName = model.apiName)
 		}
 		return result
 	}

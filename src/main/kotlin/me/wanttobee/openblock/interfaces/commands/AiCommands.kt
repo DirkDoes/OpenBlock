@@ -186,7 +186,7 @@ object AiCommands {
 	}
 
 	private fun buildCommandsBranch(): LiteralArgumentBuilder<CommandSourceStack> {
-		return MinecraftCommands.literal("commands")
+		return MinecraftCommands.literal("commandtools")
 			.executes { context ->
 				showAllowedCommands(context.source)
 				1
@@ -706,7 +706,7 @@ object AiCommands {
 		}
 
 		val sessions = AiService.allSessions(playerId)
-		val selectedSessionId = AiService.currentSessionId(playerId)
+		val selectedSessionId = AiService.currentSessionId(playerId).getOrNull()
 		if (sessions.isEmpty()) {
 			source.sendSuccess({ Component.literal("No sessions found.").withStyle(ChatFormatting.YELLOW) }, false)
 			return
@@ -732,8 +732,11 @@ object AiCommands {
 		}
 
 		val sessionId = parseUuid(source, sessionIdText, "session id") ?: return
-		if (!AiService.selectSession(playerId, sessionId)) {
-			source.sendFailure(Component.literal("Unknown session id: $sessionIdText").withStyle(ChatFormatting.RED))
+		AiService.selectSession(playerId, sessionId).getOrElse { error ->
+			source.sendFailure(
+				Component.literal(error.message ?: "Unable to select session: $sessionIdText")
+					.withStyle(ChatFormatting.RED)
+			)
 			return
 		}
 

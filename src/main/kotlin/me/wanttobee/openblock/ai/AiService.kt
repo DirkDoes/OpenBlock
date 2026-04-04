@@ -29,11 +29,13 @@ object AiService {
 
 	fun currentTarget(playerId: UUID): Result<AiTargetManager.AiTarget> = AiTargetManager.currentTarget(playerId)
 
-	fun currentSession(playerId: UUID): Session? = AiSessionManager.getSession(playerId)
+	fun currentSession(playerId: UUID): Result<Session> = AiSessionManager.getSession(playerId)
 	fun currentSessionSummary(playerId: UUID): SessionSummary? = AiSessionManager.getSelectedSessionSummary(playerId)
-	fun currentSessionId(playerId: UUID): UUID? = AiSessionManager.getSelectedSessionId(playerId)
+	fun currentSessionId(playerId: UUID): Result<UUID> = AiSessionManager.getSelectedSessionId(playerId)
 	fun allSessions(playerId: UUID): List<SessionSummary> = AiSessionManager.allSessions(playerId)
-	fun selectSession(playerId: UUID, sessionId: UUID): Boolean = AiSessionManager.selectSession(playerId, sessionId)
+	fun selectSession(playerId: UUID, sessionId: UUID): Result<Session> = AiSessionManager.selectSession(playerId, sessionId)
+	fun loadSession(playerId: UUID, sessionId: UUID): Result<Session> = AiSessionManager.loadSession(playerId, sessionId)
+	fun deleteSession(playerId: UUID, sessionId: UUID): Result<Unit> = AiSessionManager.deleteSession(playerId, sessionId)
 
 	fun selectTarget(
 		playerId: UUID,
@@ -49,7 +51,7 @@ object AiService {
 		onMessageAdded: (SessionMessage) -> Unit = {},
 	): Pair<AiTargetManager.AiTarget, List<SessionMessage>>? {
 		val target = currentTarget(playerId).getOrElse { return null }
-		val session = AiSessionManager.getSession(playerId) ?: AiSessionManager.createSession(
+		val session = currentSession(playerId).getOrNull() ?: AiSessionManager.createSession(
 			playerId = playerId,
 			systemPrompt = KnowledgeBase.OPENBLOCK_IDENTITY + KnowledgeBase.REDSTONE_DIRECTION_DETAILS,
 			bindPlayerId = true,

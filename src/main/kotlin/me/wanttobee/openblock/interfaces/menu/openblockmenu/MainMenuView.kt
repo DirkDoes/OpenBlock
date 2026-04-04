@@ -19,7 +19,7 @@ internal class MainMenuView(
 	containerId: Int,
 	playerInventory: Inventory,
 	playerId: UUID,
-) : BaseMenu(playerId, containerId, playerInventory, 3) {
+) : BaseMenu(playerId, containerId, playerInventory, 1) {
 	override val refreshIntervalTicks: Long = 6L
 
 	init {
@@ -72,7 +72,7 @@ internal class MainMenuView(
 	}
 
 	private fun pingItem() = MenuItems.menuItem(
-		item = Items.COMPASS,
+		item = Items.REDSTONE_TORCH,
 		name = Component.literal("Ping").withStyle(ChatFormatting.YELLOW),
 		lore = providerPingLore(),
 	)
@@ -80,8 +80,6 @@ internal class MainMenuView(
 	private fun sessionsItem(): net.minecraft.world.item.ItemStack {
 		val session = AiService.currentSessionSummary(playerId)
 		val lore = buildList {
-			add(Component.literal("Left click: open sessions").withStyle(ChatFormatting.GRAY))
-			add(Component.literal("Right click: unselect current session").withStyle(ChatFormatting.GRAY))
 			if (session == null) {
 				add(Component.literal("Current session: none").withStyle(ChatFormatting.DARK_GRAY))
 			} else {
@@ -90,6 +88,8 @@ internal class MainMenuView(
 						.append(Component.literal(OpenBlockMenuSupport.sessionLabel(session)).withStyle(ChatFormatting.WHITE))
 				)
 			}
+			add(Component.literal("Left click: open sessions").withStyle(ChatFormatting.GRAY))
+			add(Component.literal("Right click: unselect current session").withStyle(ChatFormatting.GRAY))
 		}
 
 		return MenuItems.menuItem(
@@ -101,19 +101,9 @@ internal class MainMenuView(
 
 	private fun modelItem() = MenuItems.menuItem(
 		item = AiService.currentTarget(playerId).getOrNull()?.provider?.let(OpenBlockMenuSupport::providerWool) ?: Items.WHITE_WOOL,
-		name = Component.literal("Model").withStyle(ChatFormatting.YELLOW),
+		name = Component.literal(AiService.currentTarget(playerId).getOrNull()?.model?.displayName ?: "Model").withStyle(ChatFormatting.WHITE),
 		lore = buildList {
 			val target = AiService.currentTarget(playerId).getOrNull()
-			add(Component.literal("Left click: choose provider and model").withStyle(ChatFormatting.GRAY))
-			add(Component.literal("Right click: choose reasoning").withStyle(ChatFormatting.GRAY))
-			add(
-				Component.literal("Provider: ").withStyle(ChatFormatting.GRAY)
-					.append(Component.literal(target?.provider?.displayName ?: "none").withStyle(ChatFormatting.WHITE))
-			)
-			add(
-				Component.literal("Model: ").withStyle(ChatFormatting.GRAY)
-					.append(Component.literal(target?.model?.displayName ?: "none").withStyle(ChatFormatting.WHITE))
-			)
 			add(
 				Component.literal("Reasoning: ").withStyle(ChatFormatting.GRAY)
 					.append(
@@ -122,11 +112,17 @@ internal class MainMenuView(
 						).withStyle(ChatFormatting.WHITE)
 					)
 			)
+			add(
+				Component.literal("Provider: ").withStyle(ChatFormatting.GRAY)
+					.append(Component.literal(target?.provider?.displayName ?: "none").withStyle(ChatFormatting.WHITE))
+			)
+			add(Component.literal("Left click: choose provider and model").withStyle(ChatFormatting.GRAY))
+			add(Component.literal("Right click: choose reasoning").withStyle(ChatFormatting.GRAY))
 		},
 	)
 
 	private fun toolsItem() = MenuItems.menuItem(
-		item = Items.REDSTONE_TORCH,
+		item = Items.COMMAND_BLOCK,
 		name = Component.literal("Tools").withStyle(ChatFormatting.YELLOW),
 		lore = AiService.allTools().map { tool ->
 			val enabled = AiService.isToolEnabled(playerId, tool.name)
@@ -141,9 +137,9 @@ internal class MainMenuView(
 			item = Items.BOOK,
 			name = Component.literal("Chat Mode").withStyle(ChatFormatting.YELLOW),
 			lore = listOf(
-				Component.literal("Capture normal chat as AI prompts").withStyle(ChatFormatting.GRAY),
 				Component.literal("State: ").withStyle(ChatFormatting.GRAY)
 					.append(Component.literal(if (enabled) "on" else "off").withStyle(if (enabled) ChatFormatting.GREEN else ChatFormatting.RED)),
+				Component.literal("Capture normal chat as AI prompts").withStyle(ChatFormatting.GRAY),
 			),
 			glint = enabled,
 		)
@@ -171,10 +167,10 @@ internal class MainMenuView(
 	}
 
 	private companion object {
-		const val PING_SLOT = 10
-		const val SESSIONS_SLOT = 13
-		const val MODEL_SLOT = 16
-		const val TOOLS_SLOT = 22
-		const val CHATMODE_SLOT = 25
+		const val PING_SLOT = 1
+		const val SESSIONS_SLOT = 3
+		const val TOOLS_SLOT = 4
+		const val MODEL_SLOT = 6
+		const val CHATMODE_SLOT = 7
 	}
 }

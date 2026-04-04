@@ -5,6 +5,8 @@ data class SessionMessage(
 	val content: String,
 	val hiddenContent: String? = null,
 	val usage: SessionTokenUsage? = null,
+	val providerName: String? = null,
+	val modelName: String? = null,
 ) {
 	fun combinedContent(): String {
 		return hiddenContent?.takeIf { it.isNotBlank() }?.let { "$it\n$content" } ?: content

@@ -141,12 +141,12 @@ object OpenAiProvider : AiProvider {
 				generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
 			}
 		}.mapCatching { outcome ->
-			session.addAssistantMessage(outcome.text, outcome.usage)
+			session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName)
 			true
 		}
 
 		result.onFailure { exception ->
-			session.addErrorMessage(exception.message ?: "Unknown error")
+			session.addErrorMessage(exception.message ?: "Unknown error", providerName = name, modelName = model.apiName)
 		}
 		return result
 	}
@@ -315,14 +315,23 @@ object OpenAiProvider : AiProvider {
 	}
 
 	private fun requiredParameters(tool: AiTool): List<String> {
-		return tool.parameters.filter(AiToolParameter::required).map(AiToolParameter::name)
+		return tool.parameters.map(AiToolParameter::name)
 	}
 
 	private fun schemaProperty(parameter: AiToolParameter): Map<String, Any> {
 		return linkedMapOf(
-			"type" to when (parameter.type) {
-				AiToolParameter.ParameterType.STRING -> "string"
-				AiToolParameter.ParameterType.UUID -> "string"
+			"type" to when {
+				parameter.required -> when (parameter.type) {
+					AiToolParameter.ParameterType.STRING -> "string"
+					AiToolParameter.ParameterType.UUID -> "string"
+				}
+				else -> listOf(
+					when (parameter.type) {
+						AiToolParameter.ParameterType.STRING -> "string"
+						AiToolParameter.ParameterType.UUID -> "string"
+					},
+					"null",
+				)
 			},
 			"description" to parameter.description,
 		)

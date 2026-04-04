@@ -1,7 +1,6 @@
 package me.wanttobee.openblock.interfaces.menu.openblockmenu
 
 import me.wanttobee.openblock.ai.AiService
-import me.wanttobee.openblock.ai.sessions.Session
 import me.wanttobee.openblock.ai.sessions.base.SessionSummary
 import me.wanttobee.openblock.interfaces.menu.MenuItems
 import me.wanttobee.openblock.interfaces.menu.base.BaseListMenu
@@ -17,7 +16,8 @@ internal class SessionsListMenu(
 	containerId: Int,
 	playerInventory: Inventory,
 	playerId: UUID,
-) : BaseListMenu(playerId, containerId, playerInventory, rows = 6, contentRows = 5) {
+	initialPage: Int = 0,
+) : BaseListMenu(playerId, containerId, playerInventory, rows = 6, contentRows = 5, initialPage = initialPage) {
 	init {
 		refreshMenu()
 	}
@@ -27,7 +27,7 @@ internal class SessionsListMenu(
 	override fun refreshMenu() {
 		resetMenu()
 		val sessions = AiService.allSessions(playerId)
-		val selectedSessionId = AiService.currentSessionId(playerId)
+		val selectedSessionId = AiService.currentSessionId(playerId).getOrNull()
 
 		if (sessions.isEmpty()) {
 			setDisplayItem(
@@ -39,9 +39,18 @@ internal class SessionsListMenu(
 			)
 		} else {
 			pageEntries(sessions).forEachIndexed { index, session ->
-				setButton(index, sessionItem(index, session, selectedSessionId == session.id)) { _, button, input ->
-					if (button == 0 && input == ContainerInput.PICKUP && AiService.selectSession(playerId, session.id)) {
-						refreshMenu()
+				setButton(index, sessionItem(index, session, selectedSessionId == session.id)) { player, button, input ->
+					if (input != ContainerInput.PICKUP) {
+						return@setButton
+					}
+
+					if (button == 0) {
+						OpenBlockMenu.openSessionActions(player, session.id, page)
+						return@setButton
+					}
+
+					if (button == 1) {
+						OpenBlockMenu.openSessionMessages(player, session.id, page)
 					}
 				}
 			}
@@ -54,16 +63,15 @@ internal class SessionsListMenu(
 	}
 
 	private fun sessionItem(index: Int, session: SessionSummary, selected: Boolean) = MenuItems.menuItem(
-		item = Items.WRITABLE_BOOK,
+		item = OpenBlockMenuSupport.providerWool(session.lastResponseProviderName),
 		name = Component.literal("Session ${index + 1 + page * entriesPerPage}").withStyle(ChatFormatting.YELLOW),
 		lore = buildList {
+			add(Component.literal("Left click: actions").withStyle(ChatFormatting.GRAY))
+			add(Component.literal("Right click: view messages").withStyle(ChatFormatting.GRAY))
 			add(
 				Component.literal("User messages: ").withStyle(ChatFormatting.GRAY)
 					.append(Component.literal(session.userMessageCount.toString()).withStyle(ChatFormatting.WHITE))
 			)
-			session.firstUserMessage?.takeIf { it.isNotBlank() }?.let { firstMessage ->
-				add(Component.literal(OpenBlockMenuSupport.trimPreview(firstMessage)).withStyle(ChatFormatting.DARK_GRAY))
-			}
 		},
 		count = session.userMessageCount.coerceIn(1, 64),
 		glint = selected,

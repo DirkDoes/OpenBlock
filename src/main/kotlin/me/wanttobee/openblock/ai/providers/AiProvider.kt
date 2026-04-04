@@ -37,6 +37,7 @@ interface AiProvider {
 		return applyReasoning(model, requestedValue)
 	}
 
+	// returning null means reasoning is un-supported
 	fun defaultReasoningValue(model: AiModel): String? {
 		val support = model.reasoningSupport
 		if (!support.supportsReasoning()) {

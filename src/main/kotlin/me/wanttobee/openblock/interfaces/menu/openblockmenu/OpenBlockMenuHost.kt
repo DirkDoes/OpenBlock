@@ -116,7 +116,7 @@ internal class OpenBlockMenuHost(
 
 	private fun renderSessionsMenu(page: Int) {
 		val sessions = AiService.allSessions(playerId)
-		val selectedSessionId = AiService.currentSessionId(playerId)
+		val selectedSessionId = AiService.currentSessionId(playerId).getOrNull()
 		val entriesPerPage = entriesPerPage(5)
 		val normalizedPage = normalizedPage(page, sessions.size, entriesPerPage)
 		if (normalizedPage != page) {
@@ -134,8 +134,9 @@ internal class OpenBlockMenuHost(
 		} else {
 			pageEntries(sessions, normalizedPage, entriesPerPage).forEachIndexed { index, session ->
 				setButton(index, sessionItem(index, normalizedPage, entriesPerPage, session, selectedSessionId == session.id)) { _, button, input ->
-					if (button == 0 && input == ContainerInput.PICKUP && AiService.selectSession(playerId, session.id)) {
-						renderCurrent()
+					if (button == 0 && input == ContainerInput.PICKUP) {
+						AiService.selectSession(playerId, session.id)
+							.onSuccess { renderCurrent() }
 					}
 				}
 			}
@@ -314,7 +315,7 @@ internal class OpenBlockMenuHost(
 	}
 
 	private fun pingItem() = MenuItems.menuItem(
-		item = Items.COMPASS,
+		item = Items.REDSTONE_TORCH,
 		name = Component.literal("Ping").withStyle(ChatFormatting.YELLOW),
 		lore = providerPingLore(),
 	)
@@ -368,7 +369,7 @@ internal class OpenBlockMenuHost(
 	)
 
 	private fun toolsItem() = MenuItems.menuItem(
-		item = Items.REDSTONE_TORCH,
+		item = Items.COMMAND_BLOCK,
 		name = Component.literal("Tools").withStyle(ChatFormatting.YELLOW),
 		lore = AiService.allTools().map { tool ->
 			val enabled = AiService.isToolEnabled(playerId, tool.name)
@@ -398,16 +399,13 @@ internal class OpenBlockMenuHost(
 		session: SessionSummary,
 		selected: Boolean,
 	) = MenuItems.menuItem(
-		item = Items.WRITABLE_BOOK,
+		item = OpenBlockMenuSupport.providerWool(session.lastResponseProviderName),
 		name = Component.literal("Session ${index + 1 + page * entriesPerPage}").withStyle(ChatFormatting.YELLOW),
 		lore = buildList {
 			add(
 				Component.literal("User messages: ").withStyle(ChatFormatting.GRAY)
 					.append(Component.literal(session.userMessageCount.toString()).withStyle(ChatFormatting.WHITE))
 			)
-			session.firstUserMessage?.takeIf { it.isNotBlank() }?.let { firstMessage ->
-				add(Component.literal(OpenBlockMenuSupport.trimPreview(firstMessage)).withStyle(ChatFormatting.DARK_GRAY))
-			}
 		},
 		count = session.userMessageCount.coerceIn(1, 64),
 		glint = selected,

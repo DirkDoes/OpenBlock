@@ -1,11 +1,13 @@
 # AGENTS.md
 The role of this file is to describe common mistakes and confusion points that agents might encounter as they work in this project. If you ever encounter something in the project that surprises you, please alert the developer working with you and indicate that this is the case in the AgentMD file to help prevent future agents from having the same issue.
+- If a `LOCAL_AGENTS.md` exists, make sure to also take those instructions in account.
 
 ### Developer defined rules
 - Never put multiple classes on the base level of a file. The file name MUST describe the only top level class in that file. Therefore there can only exist 1 top level class. (sub-classes however are allowed as it does not violate this top class rule)
 - When creating new functionality. Make sure to always use Result<T> when something uncurtain can happen. If it should return ia list, instead use Result<List<T>> rather than defaultng to an empty list. Defaulting to an empty list is up to the consumer, not the provider (most of hte time)
 - Any functionality in the codebase should NEVER be dependend on code inside interfaces. Instead, the code should be fully complete on its own. and it should not matter what interface is being wrapped around it (either a command or menu for instance)
 - NEVER use try-Catch. instead always use something like `runCatching`
+- Validate code changes by compiling the project with Gradle from the repository root using `gradlew.bat compileKotlin` on Windows or `./gradlew compileKotlin` on Unix-like systems.
 
 ### Documentation
 - **Open AI docs**: https://developers.openai.com/api/docs
@@ -18,4 +20,5 @@ The role of this file is to describe common mistakes and confusion points that a
 - Command classes must not contain business logic. They should delegate behavior to the implementation layer and only handle command wiring plus player-facing output.
 - Outside `ai/providers`, code must not know which provider or model-specific implementation is active. Provider/model-specific request building, capability handling, and tool schema translation belong inside the `AiProvider` implementations.
 - Provider tool-schema generation must respect `AiTool.Parameter.required`. If provider-side `required` lists are built from all parameter names, optional tool arguments silently stop being optional.
+- OpenAI `responses` function tools with `strict=true` have a provider-specific exception: every schema property must appear in `required`, and optional arguments must be modeled as nullable instead of being omitted from `required`.
 - Brigadier `ArgumentBuilder.then(...)` effectively snapshots the child command node at attach time. If you build generic command trees, add an argument node's child arguments and execute handlers before attaching that node to its parent, or the later-added descendants will not be reachable in the registered command.

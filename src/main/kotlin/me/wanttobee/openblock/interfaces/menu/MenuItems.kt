@@ -12,6 +12,7 @@ import net.minecraft.world.level.ItemLike
 
 internal object MenuItems {
 	private const val MAX_TOOLTIP_LINE_LENGTH = 30
+	private val nonItalicStyle = Style.EMPTY.withItalic(false)
 
 	fun menuItem(
 		item: ItemLike,
@@ -21,7 +22,7 @@ internal object MenuItems {
 		glint: Boolean = false,
 	): ItemStack {
 		return ItemStack(item, count.coerceIn(1, 64)).apply {
-			set(DataComponents.CUSTOM_NAME, name)
+			set(DataComponents.CUSTOM_NAME, name.copy().withStyle(nonItalicStyle))
 			if (lore.isNotEmpty()) {
 				set(DataComponents.LORE, ItemLore(wrapLore(lore)))
 			}
@@ -95,11 +96,11 @@ internal object MenuItems {
 				}
 
 				if (currentLength > 0) {
-					currentLine.append(Component.literal(" ").withStyle(chunk.style))
+					currentLine.append(Component.literal(" ").withStyle(chunk.style.withItalic(false)))
 					currentLength += 1
 				}
 
-				currentLine.append(Component.literal(chunk.text).withStyle(chunk.style))
+				currentLine.append(Component.literal(chunk.text).withStyle(chunk.style.withItalic(false)))
 				currentLength += chunk.text.length
 
 				if (chunk.text.length == MAX_TOOLTIP_LINE_LENGTH) {
@@ -109,7 +110,7 @@ internal object MenuItems {
 		}
 
 		flushLine()
-		return wrappedLines
+		return wrappedLines.map { line -> line.copy().withStyle(nonItalicStyle) }
 	}
 
 	private fun splitWord(word: StyledWord): List<StyledWord> {

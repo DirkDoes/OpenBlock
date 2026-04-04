@@ -8,5 +8,5 @@ data class SessionSummary(
 	val boundPlayerId: UUID?,
 	val systemPrompt: String?,
 	val userMessageCount: Int,
-	val firstUserMessage: String?,
+	val lastResponseProviderName: String?,
 )

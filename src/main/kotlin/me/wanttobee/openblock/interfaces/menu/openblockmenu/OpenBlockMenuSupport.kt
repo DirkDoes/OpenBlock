@@ -4,9 +4,13 @@ import me.wanttobee.openblock.ai.AiService
 import me.wanttobee.openblock.ai.Providers
 import me.wanttobee.openblock.ai.providers.AiProvider
 import me.wanttobee.openblock.ai.sessions.AiModel
-import me.wanttobee.openblock.ai.sessions.Session
+import me.wanttobee.openblock.ai.sessions.base.SessionMessage
 import me.wanttobee.openblock.ai.sessions.base.SessionSummary
 import me.wanttobee.openblock.ai.toolcalling.base.AiTool
+import me.wanttobee.openblock.util.MinecraftTextFormatter
+import net.minecraft.ChatFormatting
+import net.minecraft.network.chat.Component
+import net.minecraft.network.chat.Style
 import net.minecraft.world.item.Items
 import net.minecraft.world.level.ItemLike
 import java.util.UUID
@@ -22,6 +26,25 @@ internal object OpenBlockMenuSupport {
 			"google" -> Items.MAGENTA_WOOL
 			else -> Items.WHITE_WOOL
 		}
+	}
+
+	fun providerWool(providerName: String?): ItemLike {
+		val provider = providerName?.let { Providers.getProviderByName(it).getOrNull() }
+		return provider?.let(::providerWool) ?: Items.WHITE_WOOL
+	}
+
+	fun providerDisplayName(providerName: String?): String {
+		val provider = providerName?.let { Providers.getProviderByName(it).getOrNull() }
+		return provider?.displayName ?: providerName ?: "Unknown"
+	}
+
+	fun modelDisplayName(providerName: String?, modelName: String?): String {
+		if (modelName.isNullOrBlank()) {
+			return "Unknown"
+		}
+
+		val model = providerName?.let { Providers.resolveModel(it, modelName).getOrNull() }
+		return model?.displayName ?: modelName
 	}
 
 	fun currentReasoningValue(playerId: UUID, providerName: String, modelName: String): String? {
@@ -93,6 +116,20 @@ internal object OpenBlockMenuSupport {
 		return "Session ${session.id.toString().take(8)}"
 	}
 
+	fun messageLore(content: String): List<Component> {
+		val baseStyle = Style.EMPTY.withColor(ChatFormatting.WHITE).withItalic(false)
+		return content.lines().ifEmpty { listOf("") }.map { line ->
+			MinecraftTextFormatter.format(line.ifEmpty { " " }, baseStyle)
+		}
+	}
+
+	fun messageSourceLine(message: SessionMessage): Component {
+		val providerLabel = providerDisplayName(message.providerName)
+		val modelLabel = modelDisplayName(message.providerName, message.modelName)
+		return Component.literal("Model: ").withStyle(ChatFormatting.GRAY)
+			.append(Component.literal("$providerLabel / $modelLabel").withStyle(ChatFormatting.WHITE))
+	}
+
 	fun trimPreview(content: String): String {
 		val singleLine = content.replace('\n', ' ').trim()
 		return if (singleLine.length <= 48) singleLine else singleLine.take(45) + "..."
@@ -107,7 +144,7 @@ internal object OpenBlockMenuSupport {
 	fun animatedProviderColor(provider: AiProvider): Int {
 		val radians = (System.currentTimeMillis() % 1600L).toDouble() / 1600.0 * (Math.PI * 2.0)
 		val phase = ((1.0 - cos(radians)) / 2.0).toFloat()
-		return interpolateColor(provider.progressColorA, provider.progressColorB, phase)
+		return interpolateColor(0x7FFF00, provider.progressColorA, phase)
 	}
 
 	fun providerStatuses(): Map<String, ProviderStatus> = ProviderPingCache.statuses()

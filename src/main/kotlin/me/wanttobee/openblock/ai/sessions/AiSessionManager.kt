@@ -8,14 +8,26 @@ import java.util.concurrent.CopyOnWriteArrayList
 object AiSessionManager {
 	private val sessionsByOwner = ConcurrentHashMap<UUID, PlayerSessions>()
 
-	fun getSession(playerId: UUID): Session? {
+	fun getSession(playerId: UUID): Result<Session> {
 		val playerSessions = playerSessions(playerId)
-		val selectedSessionId = playerSessions.selectedSessionId ?: return null
+		val selectedSessionId = playerSessions.selectedSessionId
+			?: return Result.failure(NoSuchElementException("No active session selected."))
 		val activeSession = playerSessions.activeSession
-		return if (activeSession?.id == selectedSessionId) activeSession else null
+		if (activeSession?.id == selectedSessionId) {
+			return Result.success(activeSession)
+		}
+
+		return loadSession(playerId, selectedSessionId).onSuccess { loadedSession ->
+			if (playerSessions.selectedSessionId == selectedSessionId) {
+				playerSessions.activeSession = loadedSession
+			}
+		}
 	}
 
-	fun getSelectedSessionId(playerId: UUID): UUID? = playerSessions(playerId).selectedSessionId
+	fun getSelectedSessionId(playerId: UUID): Result<UUID> {
+		return playerSessions(playerId).selectedSessionId?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("No active session selected."))
+	}
 
 	fun getSelectedSessionSummary(playerId: UUID): SessionSummary? {
 		val playerSessions = playerSessions(playerId)
@@ -54,20 +66,44 @@ object AiSessionManager {
 		return playerSessions.summaries.containsKey(selectedSessionId)
 	}
 
-	fun selectSession(playerId: UUID, sessionId: UUID): Boolean {
+	fun selectSession(playerId: UUID, sessionId: UUID): Result<Session> {
+		val playerSessions = playerSessions(playerId)
+		return loadSession(playerId, sessionId).onSuccess { loadedSession ->
+			playerSessions.activeSession = loadedSession
+			playerSessions.selectedSessionId = sessionId
+		}
+	}
+
+	fun loadSession(playerId: UUID, sessionId: UUID): Result<Session> {
 		val playerSessions = playerSessions(playerId)
 		if (!playerSessions.summaries.containsKey(sessionId)) {
-			return false
+			return Result.failure(NoSuchElementException("Unknown session: $sessionId"))
 		}
 
 		val activeSession = playerSessions.activeSession
-		playerSessions.activeSession = if (activeSession?.id == sessionId) {
-			activeSession
+		return if (activeSession?.id == sessionId) {
+			Result.success(activeSession)
 		} else {
-			SessionLogger.loadSession(playerId, sessionId).getOrNull() ?: return false
+			SessionLogger.loadSession(playerId, sessionId)
 		}
-		playerSessions.selectedSessionId = sessionId
-		return true
+	}
+
+	fun deleteSession(playerId: UUID, sessionId: UUID): Result<Unit> {
+		val playerSessions = playerSessions(playerId)
+		if (!playerSessions.summaries.containsKey(sessionId)) {
+			return Result.failure(NoSuchElementException("Unknown session: $sessionId"))
+		}
+
+		return SessionLogger.deleteSession(playerId, sessionId).onSuccess {
+			playerSessions.summaries.remove(sessionId)
+			playerSessions.orderedSessionIds.remove(sessionId)
+			if (playerSessions.selectedSessionId == sessionId) {
+				playerSessions.selectedSessionId = null
+			}
+			if (playerSessions.activeSession?.id == sessionId) {
+				playerSessions.activeSession = null
+			}
+		}
 	}
 
 	internal fun updateSession(session: Session) {

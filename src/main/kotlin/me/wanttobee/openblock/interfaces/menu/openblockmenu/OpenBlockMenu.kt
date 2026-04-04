@@ -42,8 +42,24 @@ object OpenBlockMenu {
 	}
 
 	internal fun openSessions(player: ServerPlayer) {
+		openSessions(player, 0)
+	}
+
+	internal fun openSessions(player: ServerPlayer, page: Int) {
 		open(player, Component.literal("Sessions")) { containerId, inventory ->
-			SessionsListMenu(containerId, inventory, player.uuid)
+			SessionsListMenu(containerId, inventory, player.uuid, page)
+		}
+	}
+
+	internal fun openSessionActions(player: ServerPlayer, sessionId: java.util.UUID, returnPage: Int) {
+		open(player, Component.literal("Session Actions")) { containerId, inventory ->
+			SessionActionMenu(containerId, inventory, player.uuid, sessionId, returnPage)
+		}
+	}
+
+	internal fun openSessionMessages(player: ServerPlayer, sessionId: java.util.UUID, returnPage: Int) {
+		open(player, Component.literal("Session Messages")) { containerId, inventory ->
+			SessionMessagesMenu(containerId, inventory, player.uuid, sessionId, returnPage)
 		}
 	}
 

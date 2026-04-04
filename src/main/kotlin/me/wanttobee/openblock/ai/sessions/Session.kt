@@ -28,6 +28,13 @@ class Session(
 		return messages.firstOrNull { it.type == SessionMessage.Type.USER }?.content?.let(Result.Companion::success)
 			?: Result.failure(NoSuchElementException("Session has no user messages."))
 	}
+
+	fun lastResponseProviderName(): String? {
+		return messages.lastOrNull { message ->
+			message.type == SessionMessage.Type.ASSISTANT && !message.providerName.isNullOrBlank()
+		}?.providerName
+	}
+
 	fun summary(): SessionSummary {
 		return SessionSummary(
 			id = id,
@@ -35,7 +42,7 @@ class Session(
 			boundPlayerId = boundPlayerId,
 			systemPrompt = systemPrompt,
 			userMessageCount = userMessageCount(),
-			firstUserMessage = firstUserMessage().getOrNull(),
+			lastResponseProviderName = lastResponseProviderName(),
 		)
 	}
 	fun effectiveSystemPrompt(): Result<String> {
@@ -89,8 +96,19 @@ class Session(
 		AiSessionManager.updateSession(this)
 	}
 
-	fun addAssistantMessage(content: String, usage: SessionTokenUsage? = null) {
-		val message = SessionMessage(SessionMessage.Type.ASSISTANT, content, usage = usage)
+	fun addAssistantMessage(
+		content: String,
+		usage: SessionTokenUsage? = null,
+		providerName: String? = null,
+		modelName: String? = null,
+	) {
+		val message = SessionMessage(
+			type = SessionMessage.Type.ASSISTANT,
+			content = content,
+			usage = usage,
+			providerName = providerName,
+			modelName = modelName,
+		)
 		messages += message
 		SessionLogger.logMessage(this, message)
 		AiSessionManager.updateSession(this)
@@ -103,8 +121,19 @@ class Session(
 		AiSessionManager.updateSession(this)
 	}
 
-	fun addErrorMessage(content: String, usage: SessionTokenUsage? = null) {
-		val message = SessionMessage(SessionMessage.Type.ERROR, content, usage = usage)
+	fun addErrorMessage(
+		content: String,
+		usage: SessionTokenUsage? = null,
+		providerName: String? = null,
+		modelName: String? = null,
+	) {
+		val message = SessionMessage(
+			type = SessionMessage.Type.ERROR,
+			content = content,
+			usage = usage,
+			providerName = providerName,
+			modelName = modelName,
+		)
 		messages += message
 		SessionLogger.logMessage(this, message)
 		AiSessionManager.updateSession(this)

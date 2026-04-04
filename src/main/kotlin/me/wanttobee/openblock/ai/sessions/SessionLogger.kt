@@ -99,7 +99,9 @@ object SessionLogger {
 						boundPlayerId = snapshot.boundPlayerId?.let(UUID::fromString),
 						systemPrompt = snapshot.systemPrompt,
 						userMessageCount = snapshot.summary.userMessageCount,
-						firstUserMessage = snapshot.summary.firstUserMessage,
+						lastResponseProviderName = snapshot.messages.lastOrNull { message ->
+							message.type == SessionMessage.Type.ASSISTANT.name && !message.providerName.isNullOrBlank()
+						}?.providerName,
 					)
 				}
 		})
@@ -121,10 +123,19 @@ object SessionLogger {
 					content = message.content,
 					hiddenContent = message.hiddenContent,
 					usage = message.usage,
+					providerName = message.providerName,
+					modelName = message.modelName,
 				)
 			)
 		}
 		return Result.success(session)
+	}
+
+	fun deleteSession(ownerPlayerId: UUID, sessionId: UUID): Result<Unit> {
+		return runCatching {
+			Files.deleteIfExists(logFile(ownerPlayerId, sessionId))
+			Unit
+		}
 	}
 
 	@Synchronized
@@ -141,7 +152,7 @@ object SessionLogger {
 	private fun createSnapshot(session: Session): SessionSnapshot {
 		val now = timestamp()
 		return SessionSnapshot(
-			version = 2,
+			version = 4,
 			sessionId = session.id.toString(),
 			ownerPlayerId = session.ownerPlayerId.toString(),
 			boundPlayerId = session.boundPlayerId?.toString(),
@@ -158,7 +169,6 @@ object SessionLogger {
 	private fun persistedSummary(summary: SessionSummary): PersistedSummary {
 		return PersistedSummary(
 			userMessageCount = summary.userMessageCount,
-			firstUserMessage = summary.firstUserMessage,
 		)
 	}
 
@@ -169,6 +179,8 @@ object SessionLogger {
 				content = message.content,
 				hiddenContent = message.hiddenContent,
 				usage = message.usage,
+				providerName = message.providerName,
+				modelName = message.modelName,
 			)
 		}.toMutableList()
 	}
@@ -232,7 +244,6 @@ object SessionLogger {
 
 	private data class PersistedSummary(
 		val userMessageCount: Int,
-		val firstUserMessage: String?,
 	)
 
 	private data class PersistedMessage(
@@ -240,6 +251,8 @@ object SessionLogger {
 		val content: String,
 		val hiddenContent: String? = null,
 		val usage: SessionTokenUsage? = null,
+		val providerName: String? = null,
+		val modelName: String? = null,
 	)
 
 	private data class ProviderCallEntry(
