@@ -164,9 +164,6 @@ class Session(
 
 	internal fun updateSandboxState(sandbox: Sandbox?) {
 		this.sandbox = sandbox
-		if (persisted) {
-			SessionLogger.logSessionState(this)
-		}
 		AiSessionManager.updateSession(this)
 	}
 
@@ -181,9 +178,6 @@ class Session(
 		} else {
 			enabledToolNames -= toolName
 		}
-		if (persisted) {
-			SessionLogger.logSessionState(this)
-		}
 		AiSessionManager.updateSession(this)
 	}
 
@@ -197,9 +191,6 @@ class Session(
 			allowedCommandNames += commandName
 		} else {
 			allowedCommandNames -= commandName
-		}
-		if (persisted) {
-			SessionLogger.logSessionState(this)
 		}
 		AiSessionManager.updateSession(this)
 	}

@@ -10,6 +10,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 object AiSessionManager {
 	private val sessionsByOwner = ConcurrentHashMap<UUID, PlayerSessions>()
+	private val currentSessionListeners = CopyOnWriteArrayList<(UUID, Session) -> Unit>()
 
 	fun getSession(playerId: UUID): Result<Session> {
 		val playerSessions = playerSessions(playerId)
@@ -22,6 +23,7 @@ object AiSessionManager {
 		return loadSession(playerId, selectedSessionId).onSuccess { loadedSession ->
 			if (playerSessions.selectedSessionId == selectedSessionId) {
 				playerSessions.activeSession = loadedSession
+				notifyCurrentSessionChanged(playerId, loadedSession)
 			}
 		}
 	}
@@ -72,6 +74,7 @@ object AiSessionManager {
 			SandboxManager.unbindSession(previousSessionId)
 		}
 		SandboxManager.bindSession(draftSession.id, draftSession.sandbox())
+		notifyCurrentSessionChanged(playerId, draftSession)
 		return true
 	}
 
@@ -80,6 +83,7 @@ object AiSessionManager {
 		return loadSession(playerId, sessionId).onSuccess { loadedSession ->
 			playerSessions.activeSession = loadedSession
 			playerSessions.selectedSessionId = sessionId
+			notifyCurrentSessionChanged(playerId, loadedSession)
 		}
 	}
 
@@ -109,10 +113,11 @@ object AiSessionManager {
 			playerSessions.summaries.remove(sessionId)
 			playerSessions.orderedSessionIds.remove(sessionId)
 			if (playerSessions.selectedSessionId == sessionId) {
-				playerSessions.selectedSessionId = null
-			}
-			if (playerSessions.activeSession?.id == sessionId) {
-				playerSessions.activeSession = null
+				val draftSession = createDraftSession(playerId)
+				playerSessions.selectedSessionId = draftSession.id
+				playerSessions.activeSession = draftSession
+				SandboxManager.bindSession(draftSession.id, draftSession.sandbox())
+				notifyCurrentSessionChanged(playerId, draftSession)
 			}
 			SandboxManager.unbindSession(sessionId)
 		}
@@ -146,6 +151,7 @@ object AiSessionManager {
 		playerSessions.activeSession = draftSession
 		playerSessions.selectedSessionId = draftSession.id
 		SandboxManager.bindSession(draftSession.id, draftSession.sandbox())
+		notifyCurrentSessionChanged(playerId, draftSession)
 		return draftSession
 	}
 
@@ -158,6 +164,22 @@ object AiSessionManager {
 			initialEnabledToolNames = ToolManager.defaultEnabledToolNames(),
 			initialAllowedCommandNames = CommandToolsSupport.defaultAllowedCommandNames(),
 		)
+	}
+
+	fun ownersWithSelectedSession(sessionId: UUID): List<UUID> {
+		return sessionsByOwner.entries
+			.filter { (_, sessions) -> sessions.selectedSessionId == sessionId }
+			.map { entry -> entry.key }
+	}
+
+	fun subscribeCurrentSessionChanges(listener: (UUID, Session) -> Unit) {
+		currentSessionListeners += listener
+	}
+
+	private fun notifyCurrentSessionChanged(playerId: UUID, session: Session) {
+		for (listener in currentSessionListeners) {
+			listener(playerId, session)
+		}
 	}
 
 	private fun cacheSummary(

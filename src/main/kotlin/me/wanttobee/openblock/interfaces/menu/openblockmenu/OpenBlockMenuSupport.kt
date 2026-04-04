@@ -128,7 +128,7 @@ internal object OpenBlockMenuSupport {
 	fun animatedProviderColor(provider: AiProvider): Int {
 		val radians = (System.currentTimeMillis() % 1600L).toDouble() / 1600.0 * (Math.PI * 2.0)
 		val phase = ((1.0 - cos(radians)) / 2.0).toFloat()
-		return interpolateColor(0x7FFF00, provider.progressColorA, phase)
+		return interpolateColor(0x7FFF00, 0xFFFFFF, phase)
 	}
 
 	fun providerStatuses(): Map<String, ProviderStatus> = ProviderPingCache.statuses()

@@ -489,7 +489,7 @@ object BlockPlacementToolsSupport {
 	}
 
 	private fun blockProperties(blockState: BlockState): Map<String, String> {
-		return blockState.getValues()
+		return blockState.values
 			.toList()
 			.map(Any::toString)
 			.sorted()
@@ -527,12 +527,12 @@ object BlockPlacementToolsSupport {
 				CommonListenerCookie.createInitial(profile, false),
 			)
 			actor.setGameMode(GameType.CREATIVE)
-			actor.getAbilities().mayBuild = true
+			actor.abilities.mayBuild = true
 			actor.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY)
 			actor.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY)
 			actor.setPos(interactionActorPosition(targetPosition))
-			actor.setYRot(INTERACTION_FACING.toYRot())
-			actor.setXRot(0f)
+            actor.yRot = INTERACTION_FACING.toYRot()
+            actor.xRot = 0f
 			actor.setYHeadRot(INTERACTION_FACING.toYRot())
 			actor.setYBodyRot(INTERACTION_FACING.toYRot())
 			actor

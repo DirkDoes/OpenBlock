@@ -6,6 +6,7 @@ import com.mojang.brigadier.context.CommandContext
 import com.mojang.brigadier.suggestion.Suggestions
 import com.mojang.brigadier.suggestion.SuggestionsBuilder
 import me.wanttobee.openblock.ai.AiService
+import me.wanttobee.openblock.sandbox.SandboxManager
 import net.minecraft.ChatFormatting
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.commands.Commands as MinecraftCommands
@@ -44,6 +45,7 @@ object SandboxCommands {
 								)
 						)
 				)
+				.then(buildRendererBranch())
 				.then(buildExclusionBranch())
 				.then(buildInteractionBranch())
 				.then(
@@ -55,6 +57,25 @@ object SandboxCommands {
 				)
 		)
 	}
+
+	private fun buildRendererBranch() = MinecraftCommands.literal("renderer")
+		.executes { context ->
+			showRendererMode(context.source)
+			1
+		}
+		.then(
+			MinecraftCommands.argument("mode", StringArgumentType.word())
+				.suggests(::suggestRendererModes)
+				.executes { context ->
+					val playerId = Commands.requirePlayerId(context.source) ?: return@executes 0
+					setRendererMode(
+						context.source,
+						playerId,
+						StringArgumentType.getString(context, "mode"),
+					)
+					1
+				}
+		)
 
 	private fun buildExclusionBranch() = MinecraftCommands.literal("exclusion")
 		.then(
@@ -170,6 +191,41 @@ object SandboxCommands {
 			{
 				Component.literal("Interactions: ").withStyle(ChatFormatting.YELLOW)
 					.append(Component.literal(sandbox.interactionDescription()).withStyle(ChatFormatting.WHITE))
+			},
+			false,
+		)
+		source.sendSuccess(
+			{
+				Component.literal("Renderer: ").withStyle(ChatFormatting.YELLOW)
+					.append(Component.literal(SandboxManager.rendererMode(playerId).commandName).withStyle(ChatFormatting.WHITE))
+			},
+			false,
+		)
+	}
+
+	private fun showRendererMode(source: CommandSourceStack) {
+		val playerId = Commands.requirePlayerId(source) ?: return
+		source.sendSuccess(
+			{
+				Component.literal("Sandbox renderer: ").withStyle(ChatFormatting.YELLOW)
+					.append(Component.literal(SandboxManager.rendererMode(playerId).commandName).withStyle(ChatFormatting.WHITE))
+			},
+			false,
+		)
+	}
+
+	private fun setRendererMode(source: CommandSourceStack, playerId: UUID, rawMode: String) {
+		val mode = SandboxManager.RendererMode.fromCommandName(rawMode)
+		if (mode == null) {
+			source.sendFailure(Component.literal("Unknown sandbox renderer: $rawMode").withStyle(ChatFormatting.RED))
+			return
+		}
+
+		SandboxManager.setRendererMode(playerId, mode)
+		source.sendSuccess(
+			{
+				Component.literal("Sandbox renderer: ").withStyle(ChatFormatting.YELLOW)
+					.append(Component.literal(mode.commandName).withStyle(ChatFormatting.WHITE))
 			},
 			false,
 		)
@@ -324,6 +380,16 @@ object SandboxCommands {
 		val playerId = context.source.player?.uuid ?: return builder.buildFuture()
 		return SharedSuggestionProvider.suggest(
 			AiService.sandboxInteractionNames(playerId).getOrElse { emptyList() },
+			builder,
+		)
+	}
+
+	private fun suggestRendererModes(
+		context: CommandContext<CommandSourceStack>,
+		builder: SuggestionsBuilder,
+	): CompletableFuture<Suggestions> {
+		return SharedSuggestionProvider.suggest(
+			SandboxManager.RendererMode.entries.map(SandboxManager.RendererMode::commandName),
 			builder,
 		)
 	}

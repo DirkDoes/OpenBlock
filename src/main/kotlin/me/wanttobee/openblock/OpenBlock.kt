@@ -3,7 +3,9 @@ package me.wanttobee.openblock
 import me.wanttobee.openblock.interfaces.chat.ChatModeManager
 import me.wanttobee.openblock.interfaces.commands.Commands
 import me.wanttobee.openblock.interfaces.menu.openblockmenu.OpenBlockMenu
-import me.wanttobee.openblock.sandbox.SandboxOutlineRenderer
+import me.wanttobee.openblock.interfaces.sandbox.DisplayEntitySandboxRenderer
+import me.wanttobee.openblock.interfaces.sandbox.ParticleSandboxRenderer
+import me.wanttobee.openblock.sandbox.SandboxManager
 import net.fabricmc.api.DedicatedServerModInitializer
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.minecraft.server.MinecraftServer
@@ -19,7 +21,9 @@ object OpenBlock : DedicatedServerModInitializer {
 	}
 
 	override fun onInitializeServer() {
-		SandboxOutlineRenderer.bind()
+		SandboxManager.bind()
+		ParticleSandboxRenderer.bind()
+		DisplayEntitySandboxRenderer.bind()
 		ChatModeManager.bind()
 		OpenBlockMenu.bind()
 		ServerLifecycleEvents.SERVER_STARTED.register { server ->

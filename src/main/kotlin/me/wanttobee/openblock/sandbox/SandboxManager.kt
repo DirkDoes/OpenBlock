@@ -1,14 +1,25 @@
 package me.wanttobee.openblock.sandbox
 
+import me.wanttobee.openblock.ai.sessions.AiSessionManager
 import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceKey
 import net.minecraft.world.level.Level
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 object SandboxManager {
 	private val sandboxesBySession = ConcurrentHashMap<UUID, Sandbox>()
 	private val updatesBySession = ConcurrentHashMap<UUID, SandboxUpdate>()
+	private val currentSandboxListeners = CopyOnWriteArrayList<(UUID, Sandbox?) -> Unit>()
+	private val rendererModesByPlayer = ConcurrentHashMap<UUID, RendererMode>()
+	private val currentRendererModeListeners = CopyOnWriteArrayList<(UUID, RendererMode) -> Unit>()
+
+	fun bind() {
+		AiSessionManager.subscribeCurrentSessionChanges { playerId, session ->
+			notifyCurrentSandboxChanged(playerId, session.sandbox())
+		}
+	}
 
 	fun bindSession(sessionId: UUID, sandbox: Sandbox?) {
 		if (sandbox == null) {
@@ -16,11 +27,13 @@ object SandboxManager {
 		} else {
 			sandboxesBySession[sessionId] = sandbox
 		}
+		notifySessionSandboxChanged(sessionId, sandbox)
 	}
 
 	fun unbindSession(sessionId: UUID) {
 		sandboxesBySession.remove(sessionId)
 		updatesBySession.remove(sessionId)
+		notifySessionSandboxChanged(sessionId, null)
 	}
 
 	fun getSandbox(sessionId: UUID): Result<Sandbox> {
@@ -43,6 +56,7 @@ object SandboxManager {
 		)
 		sandboxesBySession[sessionId] = sandbox
 		recordUpdate(sessionId, "Sandbox changed to: ${sandbox.promptDescription()}")
+		notifySessionSandboxChanged(sessionId, sandbox)
 		return Result.success(sandbox)
 	}
 
@@ -69,6 +83,7 @@ object SandboxManager {
 		val updated = sandbox.copy(exclusions = sandbox.exclusions + (name to normalizedPosition))
 		sandboxesBySession[sessionId] = updated
 		recordUpdate(sessionId, "Sandbox changed to: ${updated.promptDescription()}")
+		notifySessionSandboxChanged(sessionId, updated)
 		return Result.success(updated)
 	}
 
@@ -81,6 +96,7 @@ object SandboxManager {
 		val updated = sandbox.copy(exclusions = sandbox.exclusions - name)
 		sandboxesBySession[sessionId] = updated
 		recordUpdate(sessionId, "Sandbox changed to: ${updated.promptDescription()}")
+		notifySessionSandboxChanged(sessionId, updated)
 		return Result.success(updated)
 	}
 
@@ -93,6 +109,7 @@ object SandboxManager {
 		val updated = sandbox.copy(exclusions = emptyMap())
 		sandboxesBySession[sessionId] = updated
 		recordUpdate(sessionId, "Sandbox changed to: ${updated.promptDescription()}")
+		notifySessionSandboxChanged(sessionId, updated)
 		return Result.success(updated)
 	}
 
@@ -114,6 +131,7 @@ object SandboxManager {
 		val updated = sandbox.copy(interactions = sandbox.interactions + (name to position.immutable()))
 		sandboxesBySession[sessionId] = updated
 		recordUpdate(sessionId, "Sandbox changed to: ${updated.promptDescription()}")
+		notifySessionSandboxChanged(sessionId, updated)
 		return Result.success(updated)
 	}
 
@@ -126,6 +144,7 @@ object SandboxManager {
 		val updated = sandbox.copy(interactions = sandbox.interactions - name)
 		sandboxesBySession[sessionId] = updated
 		recordUpdate(sessionId, "Sandbox changed to: ${updated.promptDescription()}")
+		notifySessionSandboxChanged(sessionId, updated)
 		return Result.success(updated)
 	}
 
@@ -138,12 +157,14 @@ object SandboxManager {
 		val updated = sandbox.copy(interactions = emptyMap())
 		sandboxesBySession[sessionId] = updated
 		recordUpdate(sessionId, "Sandbox changed to: ${updated.promptDescription()}")
+		notifySessionSandboxChanged(sessionId, updated)
 		return Result.success(updated)
 	}
 
 	fun clearSandbox(sessionId: UUID): Result<Sandbox> {
 		val removed = sandboxesBySession.remove(sessionId)
 		recordUpdate(sessionId, "Sandbox changed to: no active sandbox.")
+		notifySessionSandboxChanged(sessionId, null)
 		return removed?.let(Result.Companion::success)
 			?: Result.failure(NoSuchElementException("No active sandbox."))
 	}
@@ -216,8 +237,52 @@ object SandboxManager {
 		)
 	}
 
+	fun subscribeCurrentSandboxChanges(listener: (UUID, Sandbox?) -> Unit) {
+		currentSandboxListeners += listener
+	}
+
+	fun rendererMode(playerId: UUID): RendererMode {
+		return rendererModesByPlayer[playerId] ?: RendererMode.PARTICLES
+	}
+
+	fun setRendererMode(playerId: UUID, mode: RendererMode) {
+		rendererModesByPlayer[playerId] = mode
+		for (listener in currentRendererModeListeners) {
+			listener(playerId, mode)
+		}
+	}
+
+	fun subscribeRendererModeChanges(listener: (UUID, RendererMode) -> Unit) {
+		currentRendererModeListeners += listener
+	}
+
+	private fun notifySessionSandboxChanged(sessionId: UUID, sandbox: Sandbox?) {
+		for (playerId in AiSessionManager.ownersWithSelectedSession(sessionId)) {
+			notifyCurrentSandboxChanged(playerId, sandbox)
+		}
+	}
+
+	private fun notifyCurrentSandboxChanged(playerId: UUID, sandbox: Sandbox?) {
+		for (listener in currentSandboxListeners) {
+			listener(playerId, sandbox)
+		}
+	}
+
 	data class SandboxUpdate(
 		val version: Long,
 		val description: String,
 	)
+
+	enum class RendererMode(
+		val commandName: String,
+	) {
+		PARTICLES("particles"),
+		DISPLAY_ENTITIES("display-entities");
+
+		companion object {
+			fun fromCommandName(value: String): RendererMode? {
+				return entries.firstOrNull { it.commandName.equals(value, ignoreCase = true) }
+			}
+		}
+	}
 }
