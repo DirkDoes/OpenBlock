@@ -14,11 +14,11 @@ interface AiTool {
 	val hasConfigurationMenu: Boolean
 		get() = false
 
-	fun invoke(playerId: UUID?, rawArguments: Map<String, String>): Result<AiToolInvocation> {
+	fun invoke(boundedPlayerId: UUID?, rawArguments: Map<String, String>): Result<AiToolInvocation> {
 		val validatedArguments = ToolArguments.validate(parameters, rawArguments)
 			.getOrElse { return Result.failure(it) }
-		val execution = execute(playerId, validatedArguments).getOrElse { return Result.failure(it) }
-		val conversationMessage = conversationMessage(playerId, validatedArguments).getOrElse { return Result.failure(it) }
+		val execution = execute(boundedPlayerId, validatedArguments).getOrElse { return Result.failure(it) }
+		val conversationMessage = conversationMessage(boundedPlayerId, validatedArguments).getOrElse { return Result.failure(it) }
 		return Result.success(
 			AiToolInvocation(
 				execution = execution,
@@ -27,7 +27,7 @@ interface AiTool {
 		)
 	}
 
-	fun execute(playerId: UUID?, arguments: ToolArguments): Result<AiToolExecution>
+	fun execute(boundedPlayerId: UUID?, arguments: ToolArguments): Result<AiToolExecution>
 
 	fun conversationMessage(playerId: UUID?, arguments: ToolArguments): Result<String?> {
 		return Result.success(null)

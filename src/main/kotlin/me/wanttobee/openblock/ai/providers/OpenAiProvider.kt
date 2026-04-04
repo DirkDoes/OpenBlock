@@ -20,7 +20,6 @@ import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import me.wanttobee.openblock.ai.toolcalling.base.AiToolParameter
 import me.wanttobee.openblock.util.EnvironmentVariables
 import net.minecraft.ChatFormatting
-import java.util.stream.Collectors
 
 object OpenAiProvider : AiProvider {
 	private val gptFiveReasoningSupport = AiModel.ReasoningSupport.text(
@@ -197,7 +196,7 @@ object OpenAiProvider : AiProvider {
 				val playerId = session.boundPlayerId
 				val arguments = parseJsonArguments(toolCall.arguments())
 				val invocation = ToolManager.invoke(
-					playerId = playerId,
+					boundedPlayerId = playerId,
 					name = toolCall.name(),
 					arguments = arguments,
 				)

@@ -38,14 +38,14 @@ object GetBlocksTool : AiTool {
 		parameterIndex: Int,
 		arguments: Map<String, String>,
 	): Result<List<AiToolSuggestion>> {
-		return Result.success(when (parameterIndex) {
+		return when (parameterIndex) {
 			0, 1 -> ToolPositionSuggestions.positionSuggestions(playerId)
-			2 -> listOf(
+			2 -> Result.success(listOf(
 				AiToolSuggestion("area", "Read the entire cuboid as compact encoded layers"),
 				AiToolSuggestion("ray", "Read only the lerped path from start to end"),
-			)
-			else -> emptyList()
-		})
+			))
+			else -> Result.success(emptyList())
+		}
 	}
 
 	override fun conversationMessage(playerId: UUID?, arguments: ToolArguments): Result<String?> {
@@ -55,12 +55,12 @@ object GetBlocksTool : AiTool {
 		return Result.success("reading blocks ($mode) in $from -> $to")
 	}
 
-	override fun execute(playerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
+	override fun execute(boundedPlayerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
 		val from = arguments.get<String>(fromParameter.name).getOrElse { return Result.failure(it) }
 		val to = arguments.get<String>(toParameter.name).getOrElse { return Result.failure(it) }
 		val mode = arguments.get<String>(modeParameter.name).getOrElse { return Result.failure(it) }
 		return Result.success(BlockPlacementToolsSupport.getBlocks(
-			playerId = playerId,
+			playerId = boundedPlayerId,
 			from = from,
 			to = to,
 			mode = mode,

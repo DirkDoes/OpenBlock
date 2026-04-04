@@ -34,7 +34,7 @@ object GetPlayerDetailsTool : AiTool {
 		return PlayerContextCapturer.onlinePlayerSuggestions()
 	}
 
-	override fun execute(playerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
+	override fun execute(boundedPlayerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
 		val targetId = arguments.get<UUID>(playerUuidParameter.name).getOrElse { return Result.failure(it) }
 		val details = PlayerContextCapturer.playerDetails(targetId).getOrElse { error ->
 			return Result.success(AiToolExecution(

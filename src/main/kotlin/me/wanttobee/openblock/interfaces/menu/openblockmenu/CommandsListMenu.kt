@@ -25,7 +25,7 @@ internal class CommandsListMenu(
 
 	override fun refreshMenu() {
 		resetMenu()
-		val commands = CommandToolsSupport.commandEntries()
+		val commands = CommandToolsSupport.commandEntries().getOrElse { emptyList() }
 		pageEntries(commands).forEachIndexed { index, command ->
 			setButton(index, commandItem(command)) { _, button, input ->
 				if (button == 0 && input == ContainerInput.PICKUP) {

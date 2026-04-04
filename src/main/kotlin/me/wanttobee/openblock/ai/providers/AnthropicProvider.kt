@@ -201,7 +201,7 @@ object AnthropicProvider : AiProvider {
 				onActionChange("using ${toolUse.name()}")
 				val arguments = parseJsonArguments(toolUse._input())
 				val invocation = ToolManager.invoke(
-					playerId = session.boundPlayerId,
+					boundedPlayerId = session.boundPlayerId,
 					name = toolUse.name(),
 					arguments = arguments,
 				)

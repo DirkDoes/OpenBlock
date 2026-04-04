@@ -490,7 +490,7 @@ object OpenBlockCommands {
 
 	private fun showAllowedCommands(source: CommandSourceStack) {
 		source.sendSuccess({ Component.literal("Allowed command tools:").withStyle(ChatFormatting.YELLOW) }, false)
-		for (entry in CommandToolsSupport.commandEntries()) {
+		for (entry in CommandToolsSupport.commandEntries().getOrElse { emptyList() }) {
 			source.sendSuccess(
 				{
 					Component.literal("${entry.name}: ").withStyle(ChatFormatting.GRAY)
@@ -505,7 +505,9 @@ object OpenBlockCommands {
 	}
 
 	private fun showAllowedCommand(source: CommandSourceStack, commandName: String) {
-		val entry = CommandToolsSupport.commandEntries().firstOrNull { it.name.equals(commandName, ignoreCase = true) }
+		val entry = CommandToolsSupport.commandEntries()
+			.getOrElse { emptyList() }
+			.firstOrNull { it.name.equals(commandName, ignoreCase = true) }
 		if (entry == null) {
 			source.sendFailure(Component.literal("Unknown command: $commandName").withStyle(ChatFormatting.RED))
 			return
@@ -530,7 +532,7 @@ object OpenBlockCommands {
 
 	private fun setAllowedCommandState(source: CommandSourceStack, commandName: String, state: String) {
 		val enabled = parseOnOff(source, state) ?: return
-		if (!CommandToolsSupport.setAllowed(commandName, enabled)) {
+		if (!CommandToolsSupport.setAllowed(commandName, enabled).getOrElse { false }) {
 			source.sendFailure(Component.literal("Unknown command: $commandName").withStyle(ChatFormatting.RED))
 			return
 		}
@@ -676,7 +678,12 @@ object OpenBlockCommands {
 		context: CommandContext<CommandSourceStack>,
 		builder: SuggestionsBuilder,
 	): CompletableFuture<Suggestions> {
-		return SharedSuggestionProvider.suggest(CommandToolsSupport.commandEntries().map(CommandToolsSupport.CommandEntry::name), builder)
+		return SharedSuggestionProvider.suggest(
+			CommandToolsSupport.commandEntries()
+				.getOrElse { emptyList() }
+				.map(CommandToolsSupport.CommandEntry::name),
+			builder
+		)
 	}
 
 	private fun suggestPlayerNames(

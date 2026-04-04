@@ -32,9 +32,9 @@ object ExecuteCommandTool : AiTool {
 			return Result.success(emptyList())
 		}
 
-		return Result.success(CommandToolsSupport.availableCommands().map { command ->
-			AiToolSuggestion(command)
-		})
+		return CommandToolsSupport.availableCommands().map { commands ->
+			commands.map(::AiToolSuggestion)
+		}
 	}
 
 	override fun conversationMessage(playerId: UUID?, arguments: ToolArguments): Result<String?> {
@@ -45,11 +45,11 @@ object ExecuteCommandTool : AiTool {
 		return Result.success("executing: /$command")
 	}
 
-	override fun execute(playerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
+	override fun execute(boundedPlayerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
 		val command = arguments.get<String>(commandParameter.name).getOrElse { return Result.failure(it) }
-		return Result.success(CommandToolsSupport.execute(
-			playerId = playerId,
+		return CommandToolsSupport.execute(
+			playerId = boundedPlayerId,
 			command = command,
-		))
+		)
 	}
 }

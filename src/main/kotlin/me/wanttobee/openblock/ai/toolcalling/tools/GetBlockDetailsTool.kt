@@ -32,7 +32,7 @@ object GetBlockDetailsTool : AiTool {
 		if (parameterIndex != 0) {
 			return Result.success(emptyList())
 		}
-		return Result.success(ToolPositionSuggestions.positionSuggestions(playerId))
+		return ToolPositionSuggestions.positionSuggestions(playerId)
 	}
 
 	override fun conversationMessage(playerId: UUID?, arguments: ToolArguments): Result<String?> {
@@ -40,10 +40,10 @@ object GetBlockDetailsTool : AiTool {
 		return Result.success("reading block at $position")
 	}
 
-	override fun execute(playerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
+	override fun execute(boundedPlayerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
 		val position = arguments.get<String>(positionParameter.name).getOrElse { return Result.failure(it) }
 		return Result.success(BlockPlacementToolsSupport.getBlockDetails(
-			playerId = playerId,
+			playerId = boundedPlayerId,
 			position = position,
 		))
 	}

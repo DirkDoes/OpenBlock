@@ -24,8 +24,9 @@ object Providers {
 	}
 
 	fun resolveModel(providerName: String, modelName: String): Result<AiModel> {
-		getProviderByName(providerName).getOrElse { return Result.failure(it) }
-		return Result.success(getModel(providerName, modelName).getOrElse { AiModel(modelName, modelName) })
+		return getProviderByName(providerName).map {
+			getModel(providerName, modelName).getOrElse { AiModel(modelName, modelName) }
+		}
 	}
 
 	fun reasoningSuggestions(providerName: String, modelName: String): Result<List<AiProvider.ReasoningSuggestion>> {

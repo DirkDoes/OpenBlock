@@ -20,12 +20,14 @@ object ToolManager {
 	private val tools = listOf(
 		GetOnlinePlayersTool,
 		GetPlayerDetailsTool,
+
+		GetCommandDocumentationTool,
+		ExecuteCommandTool,
+
 		GetBlockDetailsTool,
 		GetBlocksTool,
-		GetCommandDocumentationTool,
 		PlaceBlockTool,
 		FillBlocksTool,
-		ExecuteCommandTool,
 	)
 
 	fun allTools(): List<AiTool> = tools
@@ -56,13 +58,13 @@ object ToolManager {
 		return true
 	}
 
-	fun invoke(playerId: UUID?, name: String, arguments: Map<String, String>): Result<AiToolInvocation> {
+	fun invoke(boundedPlayerId: UUID?, name: String, arguments: Map<String, String>): Result<AiToolInvocation> {
 		val tool = getTool(name)
 			?: return Result.failure(NoSuchElementException("Unknown tool: $name"))
-		return tool.invoke(playerId, arguments)
+		return tool.invoke(boundedPlayerId, arguments)
 	}
 
-	fun execute(playerId: UUID?, name: String, arguments: Map<String, String>): Result<AiToolExecution> {
-		return invoke(playerId, name, arguments).map(AiToolInvocation::execution)
+	fun execute(boundedPlayerId: UUID?, name: String, arguments: Map<String, String>): Result<AiToolExecution> {
+		return invoke(boundedPlayerId, name, arguments).map(AiToolInvocation::execution)
 	}
 }

@@ -1,7 +1,7 @@
 package me.wanttobee.openblock.ai.sessions
 
 import com.google.gson.GsonBuilder
-import me.wanttobee.openblock.ai.context.PlayerContextCapturer
+import me.wanttobee.openblock.OpenBlock
 import me.wanttobee.openblock.ai.sessions.base.SessionMessage
 import me.wanttobee.openblock.ai.sessions.base.SessionSummary
 import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
@@ -211,7 +211,7 @@ object SessionLogger {
 	}
 
 	private fun ownerDirectory(ownerPlayerId: UUID): Path? {
-		val server = PlayerContextCapturer.currentServer().getOrNull() ?: return null
+		val server = OpenBlock.currentServer().getOrNull() ?: return null
 		return server.getFile(LOG_DIR).resolve(ownerPlayerId.toString())
 	}
 

@@ -4,6 +4,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import com.mojang.brigadier.StringReader
 import com.mojang.brigadier.exceptions.CommandSyntaxException
+import me.wanttobee.openblock.OpenBlock
 import me.wanttobee.openblock.ai.context.PlayerContextCapturer
 import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import me.wanttobee.openblock.sandbox.SandboxManager
@@ -13,11 +14,13 @@ import net.minecraft.commands.CommandSourceStack
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument
 import net.minecraft.core.BlockPos
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.round
 import kotlin.streams.toList
 
 object BlockPlacementToolsSupport {
 	private const val AREA_EMPTY_TOKEN = '.'
-	private const val AREA_PALETTE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,-/:;<=>?@[]^_{|}~"
+	private const val AREA_PALETTE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+-:;<=>?@[]{|}~"
 
 	fun getBlocks(
 		playerId: UUID?,
@@ -25,26 +28,23 @@ object BlockPlacementToolsSupport {
 		to: String,
 		mode: String?,
 	): AiToolExecution {
-		val contextResult = toolContext(playerId)
-		val context = contextResult.value ?: return error(contextResult.error ?: "Unknown tool context error.")
-		val fromPosition = parseBlockPos(context.source, from)
-			?: return error("Invalid from position: $from")
-		val toPosition = parseBlockPos(context.source, to)
-			?: return error("Invalid to position: $to")
+		val source = toolContext(playerId).getOrElse { return failedExecution(it.message ?: "Unknown tool context error.") }
+		val fromPosition = parseBlockPos(source, from).getOrElse { return failedExecution("Invalid from position: $from") }
+		val toPosition = parseBlockPos(source, to).getOrElse { return failedExecution("Invalid to position: $to") }
 		val requestedRegion = SandboxRegion(
 			firstCorner = fromPosition.immutable(),
 			secondCorner = toPosition.immutable(),
 		)
-		if (!isAllowedArea(playerId, context.source, requestedRegion.minCorner(), requestedRegion.maxCorner())) {
-			return error("Requested area is outside the active sandbox.")
+		if (!isAllowedArea(playerId, source, requestedRegion.minCorner(), requestedRegion.maxCorner())) {
+			return failedExecution("Requested area is outside the active sandbox.")
 		}
 		val readMode = when (mode?.trim()?.lowercase()) {
 			"full", "area" -> ReadMode.AREA
 			"line", "ray" -> ReadMode.RAY
-			else -> return error("Invalid read mode: ${mode ?: ""}. Use area or ray.")
+			else -> return failedExecution("Invalid read mode: ${mode ?: ""}. Use area or ray.")
 		}
 
-		val level = context.source.level
+		val level = source.level
 		val xAxis = (requestedRegion.minX..requestedRegion.maxX).toList()
 		val yAxis = (requestedRegion.minY..requestedRegion.maxY).toList()
 		val zAxis = (requestedRegion.minZ..requestedRegion.maxZ).toList()
@@ -54,7 +54,7 @@ object BlockPlacementToolsSupport {
 				for (z in zAxis) {
 					val position = BlockPos(x, y, z)
 					if (!level.isLoaded(position)) {
-						return error("Requested area contains unloaded blocks.")
+						return failedExecution("Requested area contains unloaded blocks.")
 					}
 				}
 			}
@@ -112,17 +112,15 @@ object BlockPlacementToolsSupport {
 		playerId: UUID?,
 		position: String,
 	): AiToolExecution {
-		val contextResult = toolContext(playerId)
-		val context = contextResult.value ?: return error(contextResult.error ?: "Unknown tool context error.")
-		val targetPosition = parseBlockPos(context.source, position)
-			?: return error("Invalid position: $position")
-		if (!isAllowedPosition(playerId, context.source, targetPosition)) {
-			return error("Requested position is outside the active sandbox.")
+		val source = toolContext(playerId).getOrElse { return failedExecution(it.message ?: "Unknown tool context error.") }
+		val targetPosition = parseBlockPos(source, position).getOrElse { return failedExecution("Invalid position: $position") }
+		if (!isAllowedPosition(playerId, source, targetPosition)) {
+			return failedExecution("Requested position is outside the active sandbox.")
 		}
 
-		val level = context.source.level
+		val level = source.level
 		if (!level.isLoaded(targetPosition)) {
-			return error("Requested position is not currently loaded.")
+			return failedExecution("Requested position is not currently loaded.")
 		}
 
 		val blockState = level.getBlockState(targetPosition)
@@ -156,20 +154,18 @@ object BlockPlacementToolsSupport {
 		block: String,
 		properties: String?,
 	): AiToolExecution {
-		val contextResult = toolContext(playerId)
-		val context = contextResult.value ?: return error(contextResult.error ?: "Unknown tool context error.")
-		val targetPosition = parseBlockPos(context.source, position)
-			?: return error("Invalid position: $position")
-		if (!isAllowedPosition(playerId, context.source, targetPosition)) {
-			return error("Requested position is outside the active sandbox.")
+		val source = toolContext(playerId).getOrElse { return failedExecution(it.message ?: "Unknown tool context error.") }
+		val targetPosition = parseBlockPos(source, position).getOrElse { return failedExecution("Invalid position: $position") }
+		if (!isAllowedPosition(playerId, source, targetPosition)) {
+			return failedExecution("Requested position is outside the active sandbox.")
 		}
 
 		val blockSpec = buildBlockSpec(block, properties)
-			?: return error("Invalid block or block properties.")
+			.getOrElse { return failedExecution(it.message ?: "Invalid block or block properties.") }
 		return CommandToolsSupport.executeInternal(
 			playerId = playerId,
 			command = "setblock ${formatPos(targetPosition)} $blockSpec",
-		)
+		).getOrElse { failedExecution(it.message ?: "Unknown command execution error.") }
 	}
 
 	fun fillBlocks(
@@ -179,15 +175,12 @@ object BlockPlacementToolsSupport {
 		block: String,
 		properties: String?,
 	): AiToolExecution {
-		val contextResult = toolContext(playerId)
-		val context = contextResult.value ?: return error(contextResult.error ?: "Unknown tool context error.")
-		val fromPosition = parseBlockPos(context.source, from)
-			?: return error("Invalid from position: $from")
-		val toPosition = parseBlockPos(context.source, to)
-			?: return error("Invalid to position: $to")
+		val source = toolContext(playerId).getOrElse { return failedExecution(it.message ?: "Unknown tool context error.") }
+		val fromPosition = parseBlockPos(source, from).getOrElse { return failedExecution("Invalid from position: $from") }
+		val toPosition = parseBlockPos(source, to).getOrElse { return failedExecution("Invalid to position: $to") }
 
 		val blockSpec = buildBlockSpec(block, properties)
-			?: return error("Invalid block or block properties.")
+			.getOrElse { return failedExecution(it.message ?: "Invalid block or block properties.") }
 		val requestedRegion = SandboxRegion(
 			firstCorner = fromPosition.immutable(),
 			secondCorner = toPosition.immutable(),
@@ -197,51 +190,53 @@ object BlockPlacementToolsSupport {
 			return CommandToolsSupport.executeInternal(
 				playerId = playerId,
 				command = "fill ${formatPos(fromPosition)} ${formatPos(toPosition)} $blockSpec",
-			)
+			).getOrElse { failedExecution(it.message ?: "Unknown command execution error.") }
 		}
-		if (sandbox.dimension != context.source.level.dimension()) {
-			return error("Requested fill area is outside the active sandbox.")
+		if (sandbox.dimension != source.level.dimension()) {
+			return failedExecution("Requested fill area is outside the active sandbox.")
 		}
 		if (!sandbox.boundary.fullyContains(requestedRegion)) {
-			return error("Requested fill area extends outside the active sandbox.")
+			return failedExecution("Requested fill area extends outside the active sandbox.")
 		}
 		return CommandToolsSupport.executeInternal(
 			playerId = playerId,
 			command = "fill ${formatPos(fromPosition)} ${formatPos(toPosition)} $blockSpec",
-		)
+		).getOrElse { failedExecution(it.message ?: "Unknown command execution error.") }
 	}
 
-	private fun toolContext(playerId: UUID?): ToolContextResult {
-		val server = PlayerContextCapturer.currentServer().getOrElse {
-			return ToolContextResult(error = it.message ?: "Server is not available.")
+	private fun toolContext(playerId: UUID?): Result<CommandSourceStack> {
+		val server = OpenBlock.currentServer().getOrElse {
+			return Result.failure(it)
 		}
 		if (playerId == null) {
-			return ToolContextResult(value = ToolContext(CommandToolsSupport.createCommandSource(server, null)))
+			return Result.success(CommandToolsSupport.createCommandSource(server, null))
 		}
 
 		val player = server.playerList.getPlayer(playerId)
-			?: return ToolContextResult(error = "Bound player is not online.")
-		return ToolContextResult(value = ToolContext(player.createCommandSourceStack()))
+			?: return Result.failure(NoSuchElementException("Bound player is not online."))
+		return Result.success(player.createCommandSourceStack())
 	}
 
-	private fun parseBlockPos(source: CommandSourceStack, rawPosition: String): BlockPos? {
+	private fun parseBlockPos(source: CommandSourceStack, rawPosition: String): Result<BlockPos> {
 		val trimmed = rawPosition.trim()
 		if (trimmed.isBlank() || trimmed.any(Char::isWhitespace)) {
-			return null
+			return Result.failure(IllegalArgumentException("Position must be a comma-separated x,y,z string."))
 		}
 
 		val parts = trimmed.split(',')
 		if (parts.size != 3 || parts.any { part -> part.isBlank() }) {
-			return null
+			return Result.failure(IllegalArgumentException("Position must be a comma-separated x,y,z string."))
 		}
 		val normalized = parts.joinToString(" ")
 
 		return try {
-			BlockPosArgument.blockPos()
+			Result.success(
+				BlockPosArgument.blockPos()
 				.parse(StringReader(normalized))
 				.getBlockPos(source)
+			)
 		} catch (_: CommandSyntaxException) {
-			null
+			Result.failure(IllegalArgumentException("Position must be a valid block position."))
 		}
 	}
 
@@ -324,66 +319,61 @@ object BlockPlacementToolsSupport {
 		return SandboxManager.isAreaAllowed(scopedPlayerId, source.level.dimension(), firstCorner, secondCorner)
 	}
 
-	private fun buildBlockSpec(block: String, properties: String?): String? {
+	private fun buildBlockSpec(block: String, properties: String?): Result<String> {
 		val normalizedBlock = block.trim()
 		if (normalizedBlock.isBlank() || ' ' in normalizedBlock) {
-			return null
+			return Result.failure(IllegalArgumentException("Invalid block id."))
 		}
 
-		val normalizedProperties = normalizeProperties(properties) ?: return null
-		return normalizedBlock + normalizedProperties
+		val normalizedProperties = normalizeProperties(properties).getOrElse { return Result.failure(it) }
+		return Result.success(normalizedBlock + normalizedProperties)
 	}
 
-	private fun normalizeProperties(rawProperties: String?): String? {
+	private fun normalizeProperties(rawProperties: String?): Result<String> {
 		val trimmed = rawProperties?.trim().orEmpty()
-		if (trimmed.isBlank()) {
-			return ""
-		}
-
-		if (trimmed.startsWith("{")) {
-			return jsonProperties(trimmed)
-		}
-
+		if (trimmed.isBlank()) return Result.success("")
+		if (trimmed.startsWith("{")) return jsonProperties(trimmed)
 		val body = trimmed.removePrefix("[").removeSuffix("]").trim()
-		if (body.isBlank()) {
-			return ""
-		}
-
-		return "[$body]"
+		if (body.isBlank()) return Result.success("")
+		return Result.success("[$body]")
 	}
 
-	private fun jsonProperties(rawProperties: String): String? {
+	private fun jsonProperties(rawProperties: String): Result<String> {
 		val element = try {
 			JsonParser.parseString(rawProperties)
 		} catch (_: Exception) {
-			return null
+			return Result.failure(IllegalArgumentException("Properties must be valid JSON."))
 		}
 		if (!element.isJsonObject) {
-			return null
+			return Result.failure(IllegalArgumentException("Properties JSON must be an object."))
 		}
 
-		val entries = element.asJsonObject.entrySet().map { (key, value) ->
-			val propertyValue = propertyValue(value) ?: return null
-			"$key=$propertyValue"
+		val entries = mutableListOf<String>()
+		for ((key, value) in element.asJsonObject.entrySet()) {
+			val propertyValue = propertyValue(value).getOrElse { return Result.failure(it) }
+			if (key.isBlank()) {
+				return Result.failure(IllegalArgumentException("Property names cannot be blank."))
+			}
+			entries += "$key=$propertyValue"
 		}
 		if (entries.isEmpty()) {
-			return ""
+			return Result.success("")
 		}
 
-		return entries.joinToString(prefix = "[", postfix = "]", separator = ",")
+		return Result.success(entries.joinToString(prefix = "[", postfix = "]", separator = ","))
 	}
 
-	private fun propertyValue(value: JsonElement): String? {
+	private fun propertyValue(value: JsonElement): Result<String> {
 		if (!value.isJsonPrimitive) {
-			return null
+			return Result.failure(IllegalArgumentException("Property values must be primitive JSON values."))
 		}
 
 		val primitive = value.asJsonPrimitive
 		return when {
-			primitive.isBoolean -> primitive.asBoolean.toString()
-			primitive.isNumber -> primitive.asNumber.toString()
-			primitive.isString -> primitive.asString
-			else -> null
+			primitive.isBoolean -> Result.success(primitive.asBoolean.toString())
+			primitive.isNumber -> Result.success(primitive.asNumber.toString())
+			primitive.isString -> Result.success(primitive.asString)
+			else -> Result.failure(IllegalArgumentException("Unsupported property value."))
 		}
 	}
 
@@ -391,7 +381,7 @@ object BlockPlacementToolsSupport {
 		return "${position.x} ${position.y} ${position.z}"
 	}
 
-	private fun error(message: String): AiToolExecution {
+	private fun failedExecution(message: String): AiToolExecution {
 		return AiToolExecution(
 			payload = mapOf("message" to message),
 			isError = true,
@@ -402,7 +392,7 @@ object BlockPlacementToolsSupport {
 		val deltaX = end.x - start.x
 		val deltaY = end.y - start.y
 		val deltaZ = end.z - start.z
-		val steps = maxOf(kotlin.math.abs(deltaX), kotlin.math.abs(deltaY), kotlin.math.abs(deltaZ))
+		val steps = maxOf(abs(deltaX), abs(deltaY), abs(deltaZ))
 		if (steps == 0) {
 			return listOf(start)
 		}
@@ -410,9 +400,9 @@ object BlockPlacementToolsSupport {
 		val positions = mutableListOf<BlockPos>()
 		for (step in 0..steps) {
 			val progress = step.toDouble() / steps.toDouble()
-			val x = kotlin.math.round(start.x + (deltaX * progress)).toInt()
-			val y = kotlin.math.round(start.y + (deltaY * progress)).toInt()
-			val z = kotlin.math.round(start.z + (deltaZ * progress)).toInt()
+			val x = round(start.x + (deltaX * progress)).toInt()
+			val y = round(start.y + (deltaY * progress)).toInt()
+			val z = round(start.z + (deltaZ * progress)).toInt()
 			val position = BlockPos(x, y, z)
 			if (positions.lastOrNull() != position) {
 				positions += position
@@ -420,15 +410,6 @@ object BlockPlacementToolsSupport {
 		}
 		return positions
 	}
-
-	private data class ToolContext(
-		val source: CommandSourceStack,
-	)
-
-	private data class ToolContextResult(
-		val value: ToolContext? = null,
-		val error: String? = null,
-	)
 
 	private enum class ReadMode {
 		AREA,

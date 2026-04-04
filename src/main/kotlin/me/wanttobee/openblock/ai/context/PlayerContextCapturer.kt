@@ -1,8 +1,8 @@
 package me.wanttobee.openblock.ai.context
 
+import me.wanttobee.openblock.OpenBlock
 import me.wanttobee.openblock.ai.toolcalling.base.AiToolSuggestion
 import net.minecraft.core.registries.BuiltInRegistries
-import net.minecraft.server.MinecraftServer
 import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.HitResult
@@ -13,25 +13,8 @@ import java.util.UUID
 object PlayerContextCapturer {
 	private const val LOOK_BLOCK_DISTANCE = 7.0
 
-	@Volatile
-	private var server: MinecraftServer? = null
-
-	fun bind(server: MinecraftServer) {
-		this.server = server
-	}
-
-	fun clear(server: MinecraftServer) {
-		if (this.server === server)
-			this.server = null
-	}
-
-	fun currentServer(): Result<MinecraftServer> {
-		return server?.let(Result.Companion::success)
-			?: Result.failure(IllegalStateException("Minecraft server is not bound yet."))
-	}
-
 	fun capture(playerId: UUID): Result<PlayerContext> {
-		val currentServer = currentServer().getOrElse { return Result.failure(it) }
+		val currentServer = OpenBlock.currentServer().getOrElse { return Result.failure(it) }
 		val player = currentServer.playerList.getPlayer(playerId)
 			?: return Result.failure(NoSuchElementException("Player is not online: $playerId"))
 		val gameType = player.gameMode.gameModeForPlayer
@@ -78,8 +61,7 @@ object PlayerContextCapturer {
 	}
 
 	fun onlinePlayers(): Result<List<Map<String, Any?>>> {
-		val currentServer = currentServer().getOrElse { return Result.failure(it) }
-		return Result.success(
+		return OpenBlock.currentServer().map { currentServer ->
 			currentServer.playerList.players.map { player ->
 				mapOf(
 					"uuid" to player.uuid.toString(),
@@ -87,23 +69,22 @@ object PlayerContextCapturer {
 					"context" to capture(player.uuid).getOrNull()?.promptPrefix(),
 				)
 			}
-		)
+		}
 	}
 
 	fun onlinePlayerSuggestions(): Result<List<AiToolSuggestion>> {
-		val currentServer = currentServer().getOrElse { return Result.failure(it) }
-		return Result.success(
+		return OpenBlock.currentServer().map { currentServer ->
 			currentServer.playerList.players.map { player ->
 				AiToolSuggestion(
 					value = player.uuid.toString(),
 					description = player.scoreboardName,
 				)
 			}
-		)
+		}
 	}
 
 	fun playerDetails(playerId: UUID): Result<Map<String, Any?>> {
-		val currentServer = currentServer().getOrElse { return Result.failure(it) }
+		val currentServer = OpenBlock.currentServer().getOrElse { return Result.failure(it) }
 		val player = currentServer.playerList.getPlayer(playerId)
 			?: return Result.failure(NoSuchElementException("Player is not online: $playerId"))
 		val context = capture(playerId).getOrElse { return Result.failure(it) }

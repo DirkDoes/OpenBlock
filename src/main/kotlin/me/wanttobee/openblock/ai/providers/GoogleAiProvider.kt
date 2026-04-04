@@ -221,7 +221,7 @@ object GoogleAiProvider : AiProvider {
 					.orElse(emptyMap())
 					.mapValues { (_, value) -> value?.toString().orEmpty() }
 				val invocation = ToolManager.invoke(
-					playerId = session.boundPlayerId,
+					boundedPlayerId = session.boundPlayerId,
 					name = toolName,
 					arguments = arguments,
 				)

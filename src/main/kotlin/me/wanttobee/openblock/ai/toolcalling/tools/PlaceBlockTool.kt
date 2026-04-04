@@ -38,16 +38,16 @@ object PlaceBlockTool : AiTool {
 		parameterIndex: Int,
 		arguments: Map<String, String>,
 	): Result<List<AiToolSuggestion>> {
-		return Result.success(when (parameterIndex) {
-			0 -> listOf(
+		return when (parameterIndex) {
+			0 -> Result.success(listOf(
 				AiToolSuggestion("minecraft:stone"),
 				AiToolSuggestion("minecraft:oak_planks"),
 				AiToolSuggestion("minecraft:oak_stairs"),
 				AiToolSuggestion("minecraft:oak_slab"),
-			)
+			))
 			1 -> ToolPositionSuggestions.positionSuggestions(playerId)
-			else -> emptyList()
-		})
+			else -> Result.success(emptyList())
+		}
 	}
 
 	override fun conversationMessage(playerId: UUID?, arguments: ToolArguments): Result<String?> {
@@ -56,12 +56,12 @@ object PlaceBlockTool : AiTool {
 		return Result.success("placing $block at $position")
 	}
 
-	override fun execute(playerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
+	override fun execute(boundedPlayerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
 		val position = arguments.get<String>(positionParameter.name).getOrElse { return Result.failure(it) }
 		val block = arguments.get<String>(blockParameter.name).getOrElse { return Result.failure(it) }
 		val properties = arguments.getOrNull<String>(propertiesParameter.name).getOrElse { return Result.failure(it) }
 		return Result.success(BlockPlacementToolsSupport.placeBlock(
-			playerId = playerId,
+			playerId = boundedPlayerId,
 			position = position,
 			block = block,
 			properties = properties,

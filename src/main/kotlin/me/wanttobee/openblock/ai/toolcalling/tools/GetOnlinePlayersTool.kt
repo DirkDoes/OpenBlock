@@ -15,8 +15,8 @@ object GetOnlinePlayersTool : AiTool {
 	override val menuIcon = Items.PLAYER_HEAD
 
 	override fun execute(
-		playerId: java.util.UUID?,
-		arguments: ToolArguments,
+        boundedPlayerId: java.util.UUID?,
+        arguments: ToolArguments,
 	): Result<AiToolExecution> {
 		val players = PlayerContextCapturer.onlinePlayers().getOrElse { error ->
 			return Result.success(AiToolExecution(

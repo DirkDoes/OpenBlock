@@ -32,16 +32,16 @@ object GetCommandDocumentationTool : AiTool {
 			return Result.success(emptyList())
 		}
 
-		return Result.success(CommandToolsSupport.availableCommands().map { command ->
-			AiToolSuggestion(command)
-		})
+		return CommandToolsSupport.availableCommands().map { commands ->
+			commands.map(::AiToolSuggestion)
+		}
 	}
 
-	override fun execute(playerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
+	override fun execute(boundedPlayerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
 		val commandName = arguments.get<String>(commandParameter.name).getOrElse { return Result.failure(it) }
-		return Result.success(CommandToolsSupport.documentation(
-			playerId = playerId,
+		return CommandToolsSupport.documentation(
+			playerId = boundedPlayerId,
 			commandName = commandName,
-		))
+		)
 	}
 }

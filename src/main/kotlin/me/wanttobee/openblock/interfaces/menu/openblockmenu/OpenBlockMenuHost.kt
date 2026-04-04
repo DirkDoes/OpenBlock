@@ -271,7 +271,7 @@ internal class OpenBlockMenuHost(
 	}
 
 	private fun renderCommandsMenu(page: Int, returnPage: Int) {
-		val commands = CommandToolsSupport.commandEntries()
+		val commands = CommandToolsSupport.commandEntries().getOrElse { emptyList() }
 		val entriesPerPage = entriesPerPage(5)
 		val normalizedPage = normalizedPage(page, commands.size, entriesPerPage)
 		if (normalizedPage != page) {

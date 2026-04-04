@@ -1,7 +1,7 @@
 package me.wanttobee.openblock.ai.toolcalling
 
 import com.mojang.brigadier.tree.CommandNode
-import me.wanttobee.openblock.ai.context.PlayerContextCapturer
+import me.wanttobee.openblock.OpenBlock
 import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import net.minecraft.commands.CommandResultCallback
 import net.minecraft.commands.CommandSource
@@ -21,16 +21,18 @@ object CommandToolsSupport {
 	)
 	private val allowedRootOverrides = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
-	fun availableCommands(): List<String> {
-		return allRegisteredCommands().filter(::isAllowed)
+	fun availableCommands(): Result<List<String>> {
+		return allRegisteredCommands().map { commands ->
+			commands.filter(::isAllowed)
+		}
 	}
 
-	fun allRegisteredCommands(): List<String> {
-		val server = PlayerContextCapturer.currentServer().getOrNull()
-		return server?.commands?.dispatcher?.root?.children
-			?.map(CommandNode<CommandSourceStack>::getName)
-			?.sorted()
-			?: defaultAllowedRoots.sorted()
+	fun allRegisteredCommands(): Result<List<String>> {
+		return OpenBlock.currentServer().map { server ->
+			server.commands.dispatcher.root.children
+				.map(CommandNode<CommandSourceStack>::getName)
+				.sorted()
+		}
 	}
 
 	fun isAllowed(commandName: String): Boolean {
@@ -38,38 +40,43 @@ object CommandToolsSupport {
 		return allowedRootOverrides[rootName] ?: defaultAllowedRoots.contains(rootName)
 	}
 
-	fun setAllowed(commandName: String, allowed: Boolean): Boolean {
-		val rootName = normalizeRoot(commandName) ?: return false
-		if (rootName !in allRegisteredCommands() && rootName !in defaultAllowedRoots) {
-			return false
-		}
-		allowedRootOverrides[rootName] = allowed
-		return true
-	}
-
-	fun commandEntries(): List<CommandEntry> {
-		return allRegisteredCommands().map { command ->
-			CommandEntry(
-				name = command,
-				allowed = isAllowed(command),
-				defaultAllowed = defaultAllowedRoots.contains(command),
-			)
+	fun setAllowed(commandName: String, allowed: Boolean): Result<Boolean> {
+		val rootName = normalizeRoot(commandName) ?: return Result.success(false)
+		return allRegisteredCommands().map { registeredCommands ->
+			if (rootName !in registeredCommands && rootName !in defaultAllowedRoots) {
+				false
+			} else {
+				allowedRootOverrides[rootName] = allowed
+				true
+			}
 		}
 	}
 
-	fun documentation(playerId: UUID?, commandName: String): AiToolExecution {
+	fun commandEntries(): Result<List<CommandEntry>> {
+		return allRegisteredCommands().map { commands ->
+			commands.map { command ->
+				CommandEntry(
+					name = command,
+					allowed = isAllowed(command),
+					defaultAllowed = defaultAllowedRoots.contains(command),
+				)
+			}
+		}
+	}
+
+	fun documentation(playerId: UUID?, commandName: String): Result<AiToolExecution> {
 		val rootName = normalizeRoot(commandName)
-			?: return error("Command name cannot be blank.")
+			?: return Result.success(failedExecution("Command name cannot be blank."))
 		if (!isAllowed(rootName)) {
-			return error("Command is not allowed for AI documentation: $rootName")
+			return Result.success(failedExecution("Command is not allowed for AI documentation: $rootName"))
 		}
 
-		val server = PlayerContextCapturer.currentServer().getOrElse {
-			return error(it.message ?: "Server is not available.")
+		val server = OpenBlock.currentServer().getOrElse {
+			return Result.success(failedExecution(it.message ?: "Server is not available."))
 		}
 		val dispatcher = server.commands.dispatcher
 		val node = dispatcher.root.getChild(rootName)
-			?: return error("Command is not currently registered: $rootName")
+			?: return Result.success(failedExecution("Command is not currently registered: $rootName"))
 		val source = createCommandSource(server, playerId)
 
 		val smartUsage = dispatcher.getSmartUsage(node, source)
@@ -82,60 +89,61 @@ object CommandToolsSupport {
 			.distinct()
 			.sorted()
 
-		return AiToolExecution(
-			payload = linkedMapOf(
-				"command" to rootName,
-				"available" to true,
-				"subcommands" to node.children.map(CommandNode<CommandSourceStack>::getName).sorted(),
-				"smart_usage" to smartUsage,
-				"all_usage" to allUsage,
+		return Result.success(
+			AiToolExecution(
+				payload = linkedMapOf(
+					"command" to rootName,
+					"available" to true,
+					"subcommands" to node.children.map(CommandNode<CommandSourceStack>::getName).sorted(),
+					"smart_usage" to smartUsage,
+					"all_usage" to allUsage,
+				)
 			)
 		)
 	}
 
-	fun execute(playerId: UUID?, command: String): AiToolExecution {
+	fun execute(playerId: UUID?, command: String): Result<AiToolExecution> {
 		val normalizedCommand = normalizeCommand(command)
-			?: return error("Command cannot be blank.")
-		val validationError = validateExecutableCommand(normalizedCommand)
-		if (validationError != null) {
-			return error(validationError)
+			?: return Result.success(failedExecution("Command cannot be blank."))
+		validateExecutableCommand(normalizedCommand).getOrElse {
+			return Result.success(failedExecution(it.message ?: "Command validation failed."))
 		}
 
 		return runCommand(playerId, normalizedCommand)
 	}
 
-	internal fun executeInternal(playerId: UUID?, command: String): AiToolExecution {
+	internal fun executeInternal(playerId: UUID?, command: String): Result<AiToolExecution> {
 		val normalizedCommand = normalizeCommand(command)
-			?: return error("Command cannot be blank.")
+			?: return Result.success(failedExecution("Command cannot be blank."))
 		return runCommand(playerId, normalizedCommand)
 	}
 
-	private fun runCommand(playerId: UUID?, normalizedCommand: String): AiToolExecution {
-		val server = PlayerContextCapturer.currentServer().getOrElse {
-			return error(it.message ?: "Server is not available.")
+	private fun runCommand(playerId: UUID?, normalizedCommand: String): Result<AiToolExecution> {
+		val server = OpenBlock.currentServer().getOrElse {
+			return Result.success(failedExecution(it.message ?: "Server is not available."))
 		}
 		val output = mutableListOf<String>()
 		var success = false
 		var resultCount = 0
-		val source = createCommandSource(server, playerId, output).withCallback(
-			CommandResultCallback { succeeded, result ->
-				success = succeeded
-				resultCount = result
-			}
-		)
+		val source = createCommandSource(server, playerId, output).withCallback { succeeded, result ->
+            success = succeeded
+            resultCount = result
+        }
 
-		return try {
+        return try {
 			server.commands.performPrefixedCommand(source, normalizedCommand)
-			AiToolExecution(
-				payload = linkedMapOf(
-					"command" to "/$normalizedCommand",
-					"success" to success,
-					"result_count" to resultCount,
-					"output" to output,
+			Result.success(
+				AiToolExecution(
+					payload = linkedMapOf(
+						"command" to "/$normalizedCommand",
+						"success" to success,
+						"result_count" to resultCount,
+						"output" to output,
+					)
 				)
 			)
 		} catch (exception: Exception) {
-			error(exception.message ?: "Unknown command execution error.")
+			Result.success(failedExecution(exception.message ?: "Unknown command execution error."))
 		}
 	}
 
@@ -187,17 +195,17 @@ object CommandToolsSupport {
 			.ifBlank { null }
 	}
 
-	private fun validateExecutableCommand(command: String): String? {
+	private fun validateExecutableCommand(command: String): Result<Unit> {
 		val rootName = command.substringBefore(' ')
 		if (!isAllowed(rootName)) {
-			return "Command is not allowed for AI execution: $rootName"
+			return Result.failure(IllegalArgumentException("Command is not allowed for AI execution: $rootName"))
 		}
 
 		if (rootName != "execute") {
-			return null
+			return Result.success(Unit)
 		}
 
-		val runCommand = nestedRunCommand(command) ?: return null
+		val runCommand = nestedRunCommand(command) ?: return Result.success(Unit)
 		return validateExecutableCommand(runCommand)
 	}
 
@@ -212,7 +220,7 @@ object CommandToolsSupport {
 			.ifBlank { null }
 	}
 
-	private fun error(message: String): AiToolExecution {
+	private fun failedExecution(message: String): AiToolExecution {
 		return AiToolExecution(
 			payload = mapOf("message" to message),
 			isError = true,
