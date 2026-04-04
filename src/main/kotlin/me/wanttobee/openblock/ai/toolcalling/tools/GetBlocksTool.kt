@@ -13,12 +13,12 @@ import java.util.UUID
 object GetBlocksTool : AiTool {
 	private val fromParameter = AiToolParameter(
 		name = "from",
-		description = "First corner. AI tool calls should send x,y,z with no spaces, for example 10,64,-3 or ^,^1,^. Manual /aitool usage accepts normal spaced Minecraft coordinates.",
+		description = "First corner. AI tool calls should send x,y,z with no spaces, for example 10,64,-3 or ^,^1,^. Manual /ob-invoke-tool usage accepts normal spaced Minecraft coordinates.",
 		manualInput = AiToolParameter.ManualInput.BLOCK_POS,
 	)
 	private val toParameter = AiToolParameter(
 		name = "to",
-		description = "Second corner. AI tool calls should send x,y,z with no spaces, for example 20,64,-3 or ^,^,^20. Manual /aitool usage accepts normal spaced Minecraft coordinates.",
+		description = "Second corner. AI tool calls should send x,y,z with no spaces, for example 20,64,-3 or ^,^,^20. Manual /ob-invoke-tool usage accepts normal spaced Minecraft coordinates.",
 		manualInput = AiToolParameter.ManualInput.BLOCK_POS,
 	)
 	private val modeParameter = AiToolParameter(

@@ -18,8 +18,6 @@ import net.minecraft.ChatFormatting
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.commands.Commands as MinecraftCommands
 import net.minecraft.commands.SharedSuggestionProvider
-import net.minecraft.commands.arguments.coordinates.BlockPosArgument
-import net.minecraft.core.BlockPos
 import net.minecraft.network.chat.Component
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -61,7 +59,6 @@ object OpenBlockCommands {
 		root.then(buildCommandsBranch())
 		root.then(buildSessionsBranch())
 		root.then(buildChatModeBranch())
-		root.then(buildSandboxBranch())
 		dispatcher.register(root)
 	}
 
@@ -300,40 +297,6 @@ object OpenBlockCommands {
 			)
 	}
 
-	private fun buildSandboxBranch(): LiteralArgumentBuilder<CommandSourceStack> {
-		return MinecraftCommands.literal("sandbox")
-			.executes { context ->
-				showSandbox(context.source)
-				1
-			}
-			.then(
-				MinecraftCommands.literal("at")
-					.then(
-						MinecraftCommands.argument("pos1", BlockPosArgument.blockPos())
-							.then(
-								MinecraftCommands.argument("pos2", BlockPosArgument.blockPos())
-									.executes { context ->
-										val playerId = requirePlayerId(context.source) ?: return@executes 0
-										setSandbox(
-											context.source,
-											playerId,
-											BlockPosArgument.getBlockPos(context, "pos1"),
-											BlockPosArgument.getBlockPos(context, "pos2"),
-										)
-										1
-									}
-							)
-					)
-			)
-			.then(
-				MinecraftCommands.literal("clear")
-					.executes { context ->
-						clearSandbox(context.source)
-						1
-					}
-			)
-	}
-
 	private fun selectTarget(
 		source: CommandSourceStack,
 		playerId: UUID,
@@ -365,66 +328,11 @@ object OpenBlockCommands {
 			return
 		}
 
-		val cleared = AiService.clearSession(playerId)
+		AiService.clearSession(playerId)
 		source.sendSuccess(
 			{
 				Component.literal(
-					if (cleared) "AI session unselected."
-					else "No AI session to clear."
-				).withStyle(ChatFormatting.YELLOW)
-			},
-			false,
-		)
-	}
-
-	private fun showSandbox(source: CommandSourceStack) {
-		val playerId = requirePlayerId(source) ?: return
-		val sandbox = AiService.currentSandbox(playerId).getOrElse {
-			source.sendSuccess({ Component.literal("No sandbox defined.").withStyle(ChatFormatting.YELLOW) }, false)
-			return
-		}
-
-		source.sendSuccess(
-			{
-				Component.literal("Sandbox: ").withStyle(ChatFormatting.YELLOW)
-					.append(Component.literal(sandbox.boundary.description()).withStyle(ChatFormatting.WHITE))
-			},
-			false,
-		)
-	}
-
-	private fun setSandbox(
-		source: CommandSourceStack,
-		playerId: UUID,
-		firstCorner: BlockPos,
-		secondCorner: BlockPos,
-	) {
-		val sandbox = AiService.setSandbox(
-			playerId = playerId,
-			dimension = source.level.dimension(),
-			firstCorner = firstCorner,
-			secondCorner = secondCorner,
-		)
-		val min = sandbox.minCorner()
-		val max = sandbox.maxCorner()
-
-		source.sendSuccess(
-			{
-				Component.literal("Sandbox set: ").withStyle(ChatFormatting.YELLOW)
-					.append(Component.literal("[${min.x}, ${min.y}, ${min.z}] -> [${max.x}, ${max.y}, ${max.z}]").withStyle(ChatFormatting.WHITE))
-			},
-			false,
-		)
-	}
-
-	private fun clearSandbox(source: CommandSourceStack) {
-		val playerId = requirePlayerId(source) ?: return
-		val cleared = AiService.clearSandbox(playerId).getOrNull()
-		source.sendSuccess(
-			{
-				Component.literal(
-					if (cleared != null) "Sandbox cleared."
-					else "No sandbox defined."
+					"AI session reset."
 				).withStyle(ChatFormatting.YELLOW)
 			},
 			false,
@@ -489,8 +397,9 @@ object OpenBlockCommands {
 	}
 
 	private fun showAllowedCommands(source: CommandSourceStack) {
+		val playerId = requirePlayerId(source) ?: return
 		source.sendSuccess({ Component.literal("Allowed command tools:").withStyle(ChatFormatting.YELLOW) }, false)
-		for (entry in CommandToolsSupport.commandEntries().getOrElse { emptyList() }) {
+		for (entry in CommandToolsSupport.commandEntries(playerId).getOrElse { emptyList() }) {
 			source.sendSuccess(
 				{
 					Component.literal("${entry.name}: ").withStyle(ChatFormatting.GRAY)
@@ -505,7 +414,8 @@ object OpenBlockCommands {
 	}
 
 	private fun showAllowedCommand(source: CommandSourceStack, commandName: String) {
-		val entry = CommandToolsSupport.commandEntries()
+		val playerId = requirePlayerId(source) ?: return
+		val entry = CommandToolsSupport.commandEntries(playerId)
 			.getOrElse { emptyList() }
 			.firstOrNull { it.name.equals(commandName, ignoreCase = true) }
 		if (entry == null) {
@@ -531,8 +441,9 @@ object OpenBlockCommands {
 	}
 
 	private fun setAllowedCommandState(source: CommandSourceStack, commandName: String, state: String) {
+		val playerId = requirePlayerId(source) ?: return
 		val enabled = parseOnOff(source, state) ?: return
-		if (!CommandToolsSupport.setAllowed(commandName, enabled).getOrElse { false }) {
+		if (!CommandToolsSupport.setAllowed(playerId, commandName, enabled).getOrElse { false }) {
 			source.sendFailure(Component.literal("Unknown command: $commandName").withStyle(ChatFormatting.RED))
 			return
 		}
@@ -678,8 +589,9 @@ object OpenBlockCommands {
 		context: CommandContext<CommandSourceStack>,
 		builder: SuggestionsBuilder,
 	): CompletableFuture<Suggestions> {
+		val playerId = context.source.player?.uuid ?: return builder.buildFuture()
 		return SharedSuggestionProvider.suggest(
-			CommandToolsSupport.commandEntries()
+			CommandToolsSupport.commandEntries(playerId)
 				.getOrElse { emptyList() }
 				.map(CommandToolsSupport.CommandEntry::name),
 			builder

@@ -32,7 +32,7 @@ object GetCommandDocumentationTool : AiTool {
 			return Result.success(emptyList())
 		}
 
-		return CommandToolsSupport.availableCommands().map { commands ->
+		return CommandToolsSupport.availableCommands(playerId).map { commands ->
 			commands.map(::AiToolSuggestion)
 		}
 	}

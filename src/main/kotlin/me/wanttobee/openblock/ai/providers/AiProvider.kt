@@ -62,7 +62,7 @@ interface AiProvider {
 	}
 
 	fun enabledTools(session: Session): List<AiTool> {
-		return ToolManager.enabledTools(session.boundPlayerId)
+		return ToolManager.enabledTools(session)
 	}
 
 	fun missingToolResult(toolName: String): AiToolExecution {

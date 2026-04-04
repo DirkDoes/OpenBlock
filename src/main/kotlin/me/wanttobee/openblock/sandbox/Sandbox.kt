@@ -9,6 +9,8 @@ data class Sandbox(
 	val id: UUID = UUID.randomUUID(),
 	val dimension: ResourceKey<Level>,
 	val boundary: SandboxRegion,
+	val exclusions: Map<String, BlockPos> = emptyMap(),
+	val interactions: Map<String, BlockPos> = emptyMap(),
 ) {
 	fun minCorner(): BlockPos = boundary.minCorner()
 
@@ -34,7 +36,62 @@ data class Sandbox(
 		return boundary.fullyContains(region)
 	}
 
-	fun promptDescription(): String {
-		return "Sandbox restriction: AI tool calls must stay inside ${boundary.description()} in dimension $dimension."
+	fun isExcluded(position: BlockPos): Boolean {
+		return exclusions.values.any { it == position }
 	}
+
+	fun exclusionEntriesInside(region: SandboxRegion): List<NamedPoint> {
+		return exclusions
+			.mapValues { (_, position) -> position.immutable() }
+			.filterValues(region::contains)
+			.map { (name, position) -> NamedPoint(name, position) }
+			.sortedWith(compareBy({ it.position.x }, { it.position.y }, { it.position.z }, { it.name }))
+	}
+
+	fun exclusionDescription(): String {
+		if (exclusions.isEmpty()) {
+			return "none"
+		}
+
+		return exclusions
+			.map { (name, position) -> NamedPoint(name, position.immutable()) }
+			.sortedWith(compareBy({ it.position.x }, { it.position.y }, { it.position.z }, { it.name }))
+			.joinToString(", ") { entry ->
+				"${entry.name}=[${entry.position.x}, ${entry.position.y}, ${entry.position.z}]"
+			}
+	}
+
+	fun interactionDescription(): String {
+		if (interactions.isEmpty()) {
+			return "none"
+		}
+
+		return interactions
+			.map { (name, position) -> NamedPoint(name, position.immutable()) }
+			.sortedWith(compareBy({ it.position.x }, { it.position.y }, { it.position.z }, { it.name }))
+			.joinToString(", ") { entry ->
+				"${entry.name}=[${entry.position.x}, ${entry.position.y}, ${entry.position.z}]"
+			}
+	}
+
+	fun promptDescription(): String {
+		return buildString {
+			append("Sandbox restriction: AI tool calls must stay inside ${boundary.description()} in dimension $dimension.")
+			if (exclusions.isNotEmpty()) {
+				append(" Excluded blocks inside the sandbox may be read and interacted with, but must not be changed: ")
+				append(exclusionDescription())
+				append('.')
+			}
+			if (interactions.isNotEmpty()) {
+				append(" Named sandbox interaction points: ")
+				append(interactionDescription())
+				append('.')
+			}
+		}
+	}
+
+	data class NamedPoint(
+		val name: String,
+		val position: BlockPos,
+	)
 }

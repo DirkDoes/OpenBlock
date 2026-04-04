@@ -17,7 +17,7 @@ object PlaceBlockTool : AiTool {
 	)
 	private val positionParameter = AiToolParameter(
 		name = "position",
-		description = "Block position. AI tool calls should send x,y,z with no spaces, for example 10,64,-3 or ^,^1,^20. Manual /aitool usage accepts normal spaced Minecraft coordinates.",
+		description = "Block position. AI tool calls should send x,y,z with no spaces, for example 10,64,-3 or ^,^1,^20. Manual /ob-invoke-tool usage accepts normal spaced Minecraft coordinates.",
 		manualInput = AiToolParameter.ManualInput.BLOCK_POS,
 	)
 	private val propertiesParameter = AiToolParameter(

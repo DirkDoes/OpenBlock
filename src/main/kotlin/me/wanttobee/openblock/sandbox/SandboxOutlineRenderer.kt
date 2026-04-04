@@ -1,5 +1,6 @@
 package me.wanttobee.openblock.sandbox
 
+import me.wanttobee.openblock.ai.sessions.AiSessionManager
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.minecraft.core.particles.DustParticleOptions
 import net.minecraft.server.MinecraftServer
@@ -11,6 +12,7 @@ object SandboxOutlineRenderer {
 	private const val TARGET_SPACING = 1.5
 	private const val MAX_POINTS_PER_EDGE = 64
 	private val WHITE_OUTLINE = DustParticleOptions(0xFFFFFF, 1.0f)
+	private val YELLOW_OUTLINE = DustParticleOptions(0xFFFF00, 1.0f)
 
 	private var tickCounter = 0
 
@@ -24,8 +26,8 @@ object SandboxOutlineRenderer {
 	}
 
 	private fun render(server: MinecraftServer) {
-		for ((playerId, sandbox) in SandboxManager.allSandboxes()) {
-			val player = server.playerList.getPlayer(playerId) ?: continue
+		for (player in server.playerList.players) {
+			val sandbox = AiSessionManager.getSession(player.uuid).getOrNull()?.sandbox() ?: continue
 			if (player.level().dimension() != sandbox.dimension) {
 				continue
 			}
@@ -36,6 +38,17 @@ object SandboxOutlineRenderer {
 	private fun renderSandbox(player: ServerPlayer, sandbox: Sandbox) {
 		val level = player.level()
 		renderRegion(level, player, sandbox.boundary, WHITE_OUTLINE)
+		for (position in sandbox.interactions.values) {
+			renderRegion(
+				level,
+				player,
+				SandboxRegion(
+					firstCorner = position.immutable(),
+					secondCorner = position.immutable(),
+				),
+				YELLOW_OUTLINE,
+			)
+		}
 	}
 
 	private fun renderRegion(

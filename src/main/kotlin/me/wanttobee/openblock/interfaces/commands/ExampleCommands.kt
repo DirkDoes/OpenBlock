@@ -10,7 +10,7 @@ import net.minecraft.network.chat.Component
 object ExampleCommands {
 	fun register(dispatcher: CommandDispatcher<CommandSourceStack>) {
 		dispatcher.register(
-			MinecraftCommands.literal("examplemenu")
+			MinecraftCommands.literal("ob-example")
 				.requires(Commands::isAdminSource)
 				.executes { context ->
 					val player = context.source.player

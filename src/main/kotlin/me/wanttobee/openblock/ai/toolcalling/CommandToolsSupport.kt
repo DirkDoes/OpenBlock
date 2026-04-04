@@ -2,6 +2,7 @@ package me.wanttobee.openblock.ai.toolcalling
 
 import com.mojang.brigadier.tree.CommandNode
 import me.wanttobee.openblock.OpenBlock
+import me.wanttobee.openblock.ai.sessions.AiSessionManager
 import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import net.minecraft.commands.CommandResultCallback
 import net.minecraft.commands.CommandSource
@@ -19,11 +20,12 @@ object CommandToolsSupport {
 		"setworldspawn", "spawnpoint", "spectate", "spreadplayers", "summon", "tag", "team",
 		"teammsg", "teleport", "tp", "tellraw", "time", "title", "trigger", "weather",
 	)
-	private val allowedRootOverrides = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
-	fun availableCommands(): Result<List<String>> {
+	fun defaultAllowedCommandNames(): Set<String> = defaultAllowedRoots
+
+	fun availableCommands(playerId: UUID? = null): Result<List<String>> {
 		return allRegisteredCommands().map { commands ->
-			commands.filter(::isAllowed)
+			commands.filter { command -> isAllowed(playerId, command) }
 		}
 	}
 
@@ -35,29 +37,36 @@ object CommandToolsSupport {
 		}
 	}
 
-	fun isAllowed(commandName: String): Boolean {
+	fun isAllowed(playerId: UUID? = null, commandName: String): Boolean {
 		val rootName = normalizeRoot(commandName) ?: return false
-		return allowedRootOverrides[rootName] ?: defaultAllowedRoots.contains(rootName)
+		if (playerId == null) {
+			return defaultAllowedRoots.contains(rootName)
+		}
+
+		val session = AiSessionManager.getSession(playerId).getOrNull() ?: return defaultAllowedRoots.contains(rootName)
+		return rootName in session.allowedCommandNames()
 	}
 
-	fun setAllowed(commandName: String, allowed: Boolean): Result<Boolean> {
+	fun setAllowed(playerId: UUID?, commandName: String, allowed: Boolean): Result<Boolean> {
 		val rootName = normalizeRoot(commandName) ?: return Result.success(false)
+		val scopedPlayerId = playerId ?: return Result.success(false)
+		val session = AiSessionManager.getSession(scopedPlayerId).getOrElse { return Result.failure(it) }
 		return allRegisteredCommands().map { registeredCommands ->
 			if (rootName !in registeredCommands && rootName !in defaultAllowedRoots) {
 				false
 			} else {
-				allowedRootOverrides[rootName] = allowed
+				session.updateCommandState(rootName, allowed)
 				true
 			}
 		}
 	}
 
-	fun commandEntries(): Result<List<CommandEntry>> {
+	fun commandEntries(playerId: UUID? = null): Result<List<CommandEntry>> {
 		return allRegisteredCommands().map { commands ->
 			commands.map { command ->
 				CommandEntry(
 					name = command,
-					allowed = isAllowed(command),
+					allowed = isAllowed(playerId, command),
 					defaultAllowed = defaultAllowedRoots.contains(command),
 				)
 			}
@@ -67,7 +76,7 @@ object CommandToolsSupport {
 	fun documentation(playerId: UUID?, commandName: String): Result<AiToolExecution> {
 		val rootName = normalizeRoot(commandName)
 			?: return Result.success(failedExecution("Command name cannot be blank."))
-		if (!isAllowed(rootName)) {
+		if (!isAllowed(playerId, rootName)) {
 			return Result.success(failedExecution("Command is not allowed for AI documentation: $rootName"))
 		}
 
@@ -105,7 +114,7 @@ object CommandToolsSupport {
 	fun execute(playerId: UUID?, command: String): Result<AiToolExecution> {
 		val normalizedCommand = normalizeCommand(command)
 			?: return Result.success(failedExecution("Command cannot be blank."))
-		validateExecutableCommand(normalizedCommand).getOrElse {
+		validateExecutableCommand(playerId, normalizedCommand).getOrElse {
 			return Result.success(failedExecution(it.message ?: "Command validation failed."))
 		}
 
@@ -195,9 +204,9 @@ object CommandToolsSupport {
 			.ifBlank { null }
 	}
 
-	private fun validateExecutableCommand(command: String): Result<Unit> {
+	private fun validateExecutableCommand(playerId: UUID?, command: String): Result<Unit> {
 		val rootName = command.substringBefore(' ')
-		if (!isAllowed(rootName)) {
+		if (!isAllowed(playerId, rootName)) {
 			return Result.failure(IllegalArgumentException("Command is not allowed for AI execution: $rootName"))
 		}
 
@@ -206,7 +215,7 @@ object CommandToolsSupport {
 		}
 
 		val runCommand = nestedRunCommand(command) ?: return Result.success(Unit)
-		return validateExecutableCommand(runCommand)
+		return validateExecutableCommand(playerId, runCommand)
 	}
 
 	private fun nestedRunCommand(command: String): String? {

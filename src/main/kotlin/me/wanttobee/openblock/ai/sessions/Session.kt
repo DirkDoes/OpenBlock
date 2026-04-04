@@ -5,6 +5,7 @@ import me.wanttobee.openblock.ai.sessions.base.SessionMessage
 import me.wanttobee.openblock.ai.sessions.base.SessionSummary
 import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
 import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
+import me.wanttobee.openblock.sandbox.Sandbox
 import me.wanttobee.openblock.sandbox.SandboxManager
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
@@ -14,11 +15,21 @@ class Session(
 	val ownerPlayerId: UUID,
 	val systemPrompt: String? = null,
 	val boundPlayerId: UUID? = null,
+	private var persisted: Boolean = false,
+	initialEnabledToolNames: Set<String> = emptySet(),
+	initialAllowedCommandNames: Set<String> = emptySet(),
 ) {
 	private val messages = CopyOnWriteArrayList<SessionMessage>()
+	private var sandbox: Sandbox? = null
 	private var lastSandboxUpdateVersion: Long = 0L
+	private val enabledToolNames = initialEnabledToolNames.toMutableSet()
+	private val allowedCommandNames = initialAllowedCommandNames.toMutableSet()
 
 	fun messages(): List<SessionMessage> = messages.toList()
+	fun sandbox(): Sandbox? = sandbox
+	fun isPersisted(): Boolean = persisted
+	fun enabledToolNames(): Set<String> = enabledToolNames.toSet()
+	fun allowedCommandNames(): Set<String> = allowedCommandNames.toSet()
 	fun lastMessage(): Result<SessionMessage> {
 		return messages.lastOrNull()?.let(Result.Companion::success)
 			?: Result.failure(NoSuchElementException("Session has no messages."))
@@ -71,12 +82,16 @@ class Session(
 	}
 
 	fun addUserMessage(content: String) {
+		if (!persisted) {
+			persisted = true
+			SessionLogger.logSessionStarted(this)
+			AiSessionManager.updateSession(this)
+		}
 		val hiddenParts = mutableListOf<String>()
 		boundPlayerId
 			?.let { playerId -> PlayerContextCapturer.capture(playerId).getOrNull() }
 			?.let { context -> hiddenParts += context.promptPrefix() }
-		boundPlayerId
-			?.let { playerId -> SandboxManager.latestUpdate(playerId).getOrNull() }
+		SandboxManager.latestUpdate(id).getOrNull()
 			?.takeIf { update -> update.version > lastSandboxUpdateVersion }
 			?.let { update ->
 				hiddenParts += update.description
@@ -141,6 +156,52 @@ class Session(
 
 	fun appendPersistedMessage(message: SessionMessage) {
 		messages += message
+	}
+
+	internal fun restoreSandboxState(sandbox: Sandbox?) {
+		this.sandbox = sandbox
+	}
+
+	internal fun updateSandboxState(sandbox: Sandbox?) {
+		this.sandbox = sandbox
+		if (persisted) {
+			SessionLogger.logSessionState(this)
+		}
+		AiSessionManager.updateSession(this)
+	}
+
+	internal fun restoreToolState(enabledToolNames: Set<String>) {
+		this.enabledToolNames.clear()
+		this.enabledToolNames += enabledToolNames
+	}
+
+	internal fun updateToolState(toolName: String, enabled: Boolean) {
+		if (enabled) {
+			enabledToolNames += toolName
+		} else {
+			enabledToolNames -= toolName
+		}
+		if (persisted) {
+			SessionLogger.logSessionState(this)
+		}
+		AiSessionManager.updateSession(this)
+	}
+
+	internal fun restoreCommandState(allowedCommandNames: Set<String>) {
+		this.allowedCommandNames.clear()
+		this.allowedCommandNames += allowedCommandNames
+	}
+
+	internal fun updateCommandState(commandName: String, allowed: Boolean) {
+		if (allowed) {
+			allowedCommandNames += commandName
+		} else {
+			allowedCommandNames -= commandName
+		}
+		if (persisted) {
+			SessionLogger.logSessionState(this)
+		}
+		AiSessionManager.updateSession(this)
 	}
 
 	fun recordProviderCall(

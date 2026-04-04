@@ -51,11 +51,7 @@ object AiService {
 		onMessageAdded: (SessionMessage) -> Unit = {},
 	): Pair<AiTargetManager.AiTarget, List<SessionMessage>>? {
 		val target = currentTarget(playerId).getOrElse { return null }
-		val session = currentSession(playerId).getOrNull() ?: AiSessionManager.createSession(
-			playerId = playerId,
-			systemPrompt = KnowledgeBase.OPENBLOCK_IDENTITY + KnowledgeBase.REDSTONE_DIRECTION_DETAILS,
-			bindPlayerId = true,
-		)
+		val session = currentSession(playerId).getOrElse { return null }
 		session.addUserMessage(message)
 		val messageCountBeforeGenerate = session.messages().size
 		val generationResult = try {
@@ -80,16 +76,86 @@ object AiService {
 
 	fun clearSession(playerId: UUID): Boolean = AiSessionManager.clearSession(playerId)
 
-	fun currentSandbox(playerId: UUID): Result<Sandbox> = SandboxManager.getSandbox(playerId)
+	fun currentSandbox(playerId: UUID): Result<Sandbox> {
+		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return session.sandbox()?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("No active sandbox."))
+	}
 
 	fun setSandbox(
 		playerId: UUID,
 		dimension: ResourceKey<Level>,
 		firstCorner: BlockPos,
 		secondCorner: BlockPos,
-	): Sandbox = SandboxManager.setSandbox(playerId, dimension, firstCorner, secondCorner)
+	): Result<Sandbox> {
+		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return SandboxManager.setSandbox(session.id, dimension, firstCorner, secondCorner)
+			.onSuccess(session::updateSandboxState)
+	}
 
-	fun clearSandbox(playerId: UUID): Result<Sandbox> = SandboxManager.clearSandbox(playerId)
+	fun addSandboxExclusion(
+		playerId: UUID,
+		dimension: ResourceKey<Level>,
+		name: String,
+		position: BlockPos,
+	): Result<Sandbox> {
+		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return SandboxManager.addExclusion(session.id, dimension, name, position)
+			.onSuccess(session::updateSandboxState)
+	}
+
+	fun removeSandboxExclusion(playerId: UUID, name: String): Result<Sandbox> {
+		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return SandboxManager.removeExclusion(session.id, name)
+			.onSuccess(session::updateSandboxState)
+	}
+
+	fun clearSandboxExclusions(playerId: UUID): Result<Sandbox> {
+		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return SandboxManager.clearExclusions(session.id)
+			.onSuccess(session::updateSandboxState)
+	}
+
+	fun addSandboxInteraction(
+		playerId: UUID,
+		dimension: ResourceKey<Level>,
+		name: String,
+		position: BlockPos,
+	): Result<Sandbox> {
+		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return SandboxManager.addInteraction(session.id, dimension, name, position)
+			.onSuccess(session::updateSandboxState)
+	}
+
+	fun removeSandboxInteraction(playerId: UUID, name: String): Result<Sandbox> {
+		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return SandboxManager.removeInteraction(session.id, name)
+			.onSuccess(session::updateSandboxState)
+	}
+
+	fun clearSandboxInteractions(playerId: UUID): Result<Sandbox> {
+		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return SandboxManager.clearInteractions(session.id)
+			.onSuccess(session::updateSandboxState)
+	}
+
+	fun clearSandbox(playerId: UUID): Result<Sandbox> {
+		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return SandboxManager.clearSandbox(session.id)
+			.onSuccess { session.updateSandboxState(null) }
+	}
+
+	fun sandboxExclusionNames(playerId: UUID): Result<List<String>> {
+		return currentSandbox(playerId).map { sandbox ->
+			sandbox.exclusions.keys.sorted()
+		}
+	}
+
+	fun sandboxInteractionNames(playerId: UUID): Result<List<String>> {
+		return currentSandbox(playerId).map { sandbox ->
+			sandbox.interactions.keys.sorted()
+		}
+	}
 
 	fun allTools(): List<AiTool> = ToolManager.allTools()
 

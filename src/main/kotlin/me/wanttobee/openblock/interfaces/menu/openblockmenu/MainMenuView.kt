@@ -81,7 +81,7 @@ internal class MainMenuView(
 		val session = AiService.currentSessionSummary(playerId)
 		val lore = buildList {
 			if (session == null) {
-				add(Component.literal("Current session: none").withStyle(ChatFormatting.DARK_GRAY))
+				add(Component.literal("Current session: draft").withStyle(ChatFormatting.DARK_GRAY))
 			} else {
 				add(
 					Component.literal("Current session: ").withStyle(ChatFormatting.GRAY)
@@ -89,7 +89,7 @@ internal class MainMenuView(
 				)
 			}
 			add(Component.literal("Left click: open sessions").withStyle(ChatFormatting.GRAY))
-			add(Component.literal("Right click: unselect current session").withStyle(ChatFormatting.GRAY))
+			add(Component.literal("Right click: reset to draft session").withStyle(ChatFormatting.GRAY))
 		}
 
 		return MenuItems.menuItem(

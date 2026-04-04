@@ -6,6 +6,13 @@ import me.wanttobee.openblock.ai.sessions.base.SessionMessage
 import me.wanttobee.openblock.ai.sessions.base.SessionSummary
 import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
 import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
+import me.wanttobee.openblock.sandbox.Sandbox
+import me.wanttobee.openblock.sandbox.SandboxRegion
+import net.minecraft.core.BlockPos
+import net.minecraft.core.registries.Registries
+import net.minecraft.resources.ResourceKey
+import net.minecraft.resources.Identifier
+import net.minecraft.world.level.Level
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -16,6 +23,7 @@ import java.util.UUID
 
 object SessionLogger {
 	private const val LOG_DIR = "openblock/sessions"
+	private val namespacedIdPattern = Regex("[a-z0-9_.-]+:[a-z0-9_./-]+")
 	private val gson = GsonBuilder()
 		.setPrettyPrinting()
 		.serializeNulls()
@@ -37,6 +45,13 @@ object SessionLogger {
 	}
 
 	fun logMessage(session: Session, message: SessionMessage) {
+		update(session) { snapshot ->
+			snapshot.messages = persistedMessages(session)
+			snapshot.summary = persistedSummary(session.summary())
+		}
+	}
+
+	fun logSessionState(session: Session) {
 		update(session) { snapshot ->
 			snapshot.messages = persistedMessages(session)
 			snapshot.summary = persistedSummary(session.summary())
@@ -110,11 +125,15 @@ object SessionLogger {
 	fun loadSession(ownerPlayerId: UUID, sessionId: UUID): Result<Session> {
 		val snapshot = readSnapshot(logFile(ownerPlayerId, sessionId))
 			?: return Result.failure(NoSuchElementException("Unknown session: $sessionId"))
+		val sandbox = restoredSandbox(snapshot.sandbox).getOrElse { return Result.failure(it) }
 		val session = Session(
 			id = UUID.fromString(snapshot.sessionId),
 			ownerPlayerId = UUID.fromString(snapshot.ownerPlayerId),
 			systemPrompt = snapshot.systemPrompt,
 			boundPlayerId = snapshot.boundPlayerId?.let(UUID::fromString),
+			persisted = true,
+			initialEnabledToolNames = snapshot.enabledTools.toSet(),
+			initialAllowedCommandNames = snapshot.allowedCommands.toSet(),
 		)
 		for (message in snapshot.messages) {
 			session.appendPersistedMessage(
@@ -128,6 +147,9 @@ object SessionLogger {
 				)
 			)
 		}
+		session.restoreSandboxState(sandbox)
+		session.restoreToolState(snapshot.enabledTools.toSet())
+		session.restoreCommandState(snapshot.allowedCommands.toSet())
 		return Result.success(session)
 	}
 
@@ -145,6 +167,9 @@ object SessionLogger {
 		snapshot.boundPlayerId = session.boundPlayerId?.toString()
 		snapshot.systemPrompt = session.systemPrompt
 		snapshot.updatedAt = timestamp()
+		snapshot.sandbox = persistedSandbox(session.sandbox())
+		snapshot.enabledTools = session.enabledToolNames().sorted().toMutableList()
+		snapshot.allowedCommands = session.allowedCommandNames().sorted().toMutableList()
 		mutate(snapshot)
 		write(session.ownerPlayerId, session.id, snapshot)
 	}
@@ -152,7 +177,7 @@ object SessionLogger {
 	private fun createSnapshot(session: Session): SessionSnapshot {
 		val now = timestamp()
 		return SessionSnapshot(
-			version = 4,
+			version = 5,
 			sessionId = session.id.toString(),
 			ownerPlayerId = session.ownerPlayerId.toString(),
 			boundPlayerId = session.boundPlayerId?.toString(),
@@ -161,6 +186,9 @@ object SessionLogger {
 			updatedAt = now,
 			summary = persistedSummary(session.summary()),
 			messages = persistedMessages(session),
+			sandbox = persistedSandbox(session.sandbox()),
+			enabledTools = session.enabledToolNames().sorted().toMutableList(),
+			allowedCommands = session.allowedCommandNames().sorted().toMutableList(),
 			providerCalls = mutableListOf(),
 			toolInvocations = mutableListOf(),
 		)
@@ -183,6 +211,84 @@ object SessionLogger {
 				modelName = message.modelName,
 			)
 		}.toMutableList()
+	}
+
+	private fun persistedSandbox(sandbox: Sandbox?): PersistedSandbox? {
+		return sandbox?.let {
+			PersistedSandbox(
+				dimension = persistedDimension(it.dimension),
+				boundary = PersistedRegion(
+					firstCorner = persistedBlockPos(it.boundary.firstCorner),
+					secondCorner = persistedBlockPos(it.boundary.secondCorner),
+				),
+				exclusions = it.exclusions.map { (name, position) ->
+					PersistedNamedPoint(
+						name = name,
+						position = persistedBlockPos(position),
+					)
+				},
+				interactions = it.interactions.map { (name, position) ->
+					PersistedNamedPoint(
+						name = name,
+						position = persistedBlockPos(position),
+					)
+				},
+			)
+		}
+	}
+
+	private fun persistedDimension(dimension: ResourceKey<Level>): String {
+		return namespacedIdPattern.findAll(dimension.toString()).lastOrNull()?.value
+			?: dimension.toString()
+	}
+
+	private fun persistedBlockPos(position: BlockPos): PersistedBlockPos {
+		return PersistedBlockPos(
+			x = position.x,
+			y = position.y,
+			z = position.z,
+		)
+	}
+
+	private fun restoredSandbox(persisted: PersistedSandbox?): Result<Sandbox?> {
+		if (persisted == null) {
+			return Result.success(null)
+		}
+
+		val separatorIndex = persisted.dimension.indexOf(':')
+		if (separatorIndex <= 0 || separatorIndex == persisted.dimension.lastIndex) {
+			return Result.failure(IllegalArgumentException("Invalid persisted sandbox dimension: ${persisted.dimension}"))
+		}
+		val dimension: ResourceKey<Level> = runCatching {
+			ResourceKey.create(
+				Registries.DIMENSION,
+				Identifier.fromNamespaceAndPath(
+					persisted.dimension.substring(0, separatorIndex),
+					persisted.dimension.substring(separatorIndex + 1),
+				),
+			)
+		}.getOrElse {
+			return Result.failure(IllegalArgumentException("Invalid persisted sandbox dimension: ${persisted.dimension}", it))
+		}
+		return Result.success(
+			Sandbox(
+				dimension = dimension,
+				boundary = SandboxRegion(
+					firstCorner = restoredBlockPos(persisted.boundary.firstCorner),
+					secondCorner = restoredBlockPos(persisted.boundary.secondCorner),
+				),
+				exclusions = persisted.exclusions.associate { entry ->
+					entry.name to restoredBlockPos(entry.position)
+				},
+				interactions = persisted.interactions.associate { entry ->
+					entry.name to restoredBlockPos(entry.position)
+				},
+			)
+		)
+	}
+
+	private fun restoredBlockPos(position: PersistedBlockPos): BlockPos {
+		return BlockPos(position.x, position.y, position.z)
 	}
 
 	private fun write(ownerPlayerId: UUID, sessionId: UUID, snapshot: SessionSnapshot) {
@@ -238,6 +344,9 @@ object SessionLogger {
 		var closeReason: String? = null,
 		var summary: PersistedSummary,
 		var messages: MutableList<PersistedMessage>,
+		var sandbox: PersistedSandbox? = null,
+		var enabledTools: MutableList<String> = mutableListOf(),
+		var allowedCommands: MutableList<String> = mutableListOf(),
 		val providerCalls: MutableList<ProviderCallEntry>,
 		val toolInvocations: MutableList<ToolInvocationEntry>,
 	)
@@ -269,5 +378,28 @@ object SessionLogger {
 		val toolArguments: Map<String, String>,
 		val toolResult: Map<String, Any?>,
 		val conversationMessage: String? = null,
+	)
+
+	private data class PersistedSandbox(
+		val dimension: String,
+		val boundary: PersistedRegion,
+		val exclusions: List<PersistedNamedPoint>,
+		val interactions: List<PersistedNamedPoint>,
+	)
+
+	private data class PersistedRegion(
+		val firstCorner: PersistedBlockPos,
+		val secondCorner: PersistedBlockPos,
+	)
+
+	private data class PersistedNamedPoint(
+		val name: String,
+		val position: PersistedBlockPos,
+	)
+
+	private data class PersistedBlockPos(
+		val x: Int,
+		val y: Int,
+		val z: Int,
 	)
 }

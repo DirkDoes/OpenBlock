@@ -1,6 +1,9 @@
 package me.wanttobee.openblock.ai.sessions
 
 import me.wanttobee.openblock.ai.sessions.base.SessionSummary
+import me.wanttobee.openblock.ai.toolcalling.CommandToolsSupport
+import me.wanttobee.openblock.ai.toolcalling.ToolManager
+import me.wanttobee.openblock.sandbox.SandboxManager
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -10,8 +13,7 @@ object AiSessionManager {
 
 	fun getSession(playerId: UUID): Result<Session> {
 		val playerSessions = playerSessions(playerId)
-		val selectedSessionId = playerSessions.selectedSessionId
-			?: return Result.failure(NoSuchElementException("No active session selected."))
+		val selectedSessionId = playerSessions.selectedSessionId ?: ensureDraftSession(playerId, playerSessions).id
 		val activeSession = playerSessions.activeSession
 		if (activeSession?.id == selectedSessionId) {
 			return Result.success(activeSession)
@@ -25,8 +27,8 @@ object AiSessionManager {
 	}
 
 	fun getSelectedSessionId(playerId: UUID): Result<UUID> {
-		return playerSessions(playerId).selectedSessionId?.let(Result.Companion::success)
-			?: Result.failure(NoSuchElementException("No active session selected."))
+		val playerSessions = playerSessions(playerId)
+		return Result.success(playerSessions.selectedSessionId ?: ensureDraftSession(playerId, playerSessions).id)
 	}
 
 	fun getSelectedSessionSummary(playerId: UUID): SessionSummary? {
@@ -50,20 +52,27 @@ object AiSessionManager {
 			ownerPlayerId = playerId,
 			systemPrompt = systemPrompt,
 			boundPlayerId = if (bindPlayerId) playerId else null,
+			persisted = false,
+			initialEnabledToolNames = ToolManager.defaultEnabledToolNames(),
+			initialAllowedCommandNames = CommandToolsSupport.defaultAllowedCommandNames(),
 		)
 		playerSessions.activeSession = session
 		playerSessions.selectedSessionId = session.id
-		cacheSummary(playerSessions, session.summary(), addToFront = true)
-		SessionLogger.logSessionStarted(session)
+		SandboxManager.bindSession(session.id, session.sandbox())
 		return session
 	}
 
 	fun clearSession(playerId: UUID): Boolean {
 		val playerSessions = playerSessions(playerId)
-		val selectedSessionId = playerSessions.selectedSessionId ?: return false
-		playerSessions.selectedSessionId = null
-		playerSessions.activeSession = null
-		return playerSessions.summaries.containsKey(selectedSessionId)
+		val previousSessionId = playerSessions.selectedSessionId
+		val draftSession = createDraftSession(playerId)
+		playerSessions.selectedSessionId = draftSession.id
+		playerSessions.activeSession = draftSession
+		if (previousSessionId != null) {
+			SandboxManager.unbindSession(previousSessionId)
+		}
+		SandboxManager.bindSession(draftSession.id, draftSession.sandbox())
+		return true
 	}
 
 	fun selectSession(playerId: UUID, sessionId: UUID): Result<Session> {
@@ -84,7 +93,9 @@ object AiSessionManager {
 		return if (activeSession?.id == sessionId) {
 			Result.success(activeSession)
 		} else {
-			SessionLogger.loadSession(playerId, sessionId)
+			SessionLogger.loadSession(playerId, sessionId).onSuccess { loadedSession ->
+				SandboxManager.bindSession(loadedSession.id, loadedSession.sandbox())
+			}
 		}
 	}
 
@@ -103,6 +114,7 @@ object AiSessionManager {
 			if (playerSessions.activeSession?.id == sessionId) {
 				playerSessions.activeSession = null
 			}
+			SandboxManager.unbindSession(sessionId)
 		}
 	}
 
@@ -110,7 +122,10 @@ object AiSessionManager {
 		val playerSessions = playerSessions(session.ownerPlayerId)
 		playerSessions.activeSession = session
 		playerSessions.selectedSessionId = session.id
-		cacheSummary(playerSessions, session.summary(), addToFront = false)
+		if (session.isPersisted()) {
+			cacheSummary(playerSessions, session.summary(), addToFront = false)
+		}
+		SandboxManager.bindSession(session.id, session.sandbox())
 	}
 
 	private fun playerSessions(playerId: UUID): PlayerSessions {
@@ -119,8 +134,30 @@ object AiSessionManager {
 				for (summary in SessionLogger.listSessionSummaries(ownerId).getOrElse { emptyList() }) {
 					cacheSummary(playerSessions, summary, addToFront = false)
 				}
+				val draftSession = createDraftSession(ownerId)
+				playerSessions.selectedSessionId = draftSession.id
+				playerSessions.activeSession = draftSession
 			}
 		}
+	}
+
+	private fun ensureDraftSession(playerId: UUID, playerSessions: PlayerSessions): Session {
+		val draftSession = playerSessions.activeSession ?: createDraftSession(playerId)
+		playerSessions.activeSession = draftSession
+		playerSessions.selectedSessionId = draftSession.id
+		SandboxManager.bindSession(draftSession.id, draftSession.sandbox())
+		return draftSession
+	}
+
+	private fun createDraftSession(playerId: UUID): Session {
+		return Session(
+			ownerPlayerId = playerId,
+			systemPrompt = null,
+			boundPlayerId = playerId,
+			persisted = false,
+			initialEnabledToolNames = ToolManager.defaultEnabledToolNames(),
+			initialAllowedCommandNames = CommandToolsSupport.defaultAllowedCommandNames(),
+		)
 	}
 
 	private fun cacheSummary(

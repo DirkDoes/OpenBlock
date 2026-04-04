@@ -18,7 +18,7 @@ object EnvCommands {
 		EnvironmentVariables.ensureFileExists()
 
 		dispatcher.register(
-			MinecraftCommands.literal("env")
+			MinecraftCommands.literal("ob-env")
 				.requires(Commands::isOpPlayer)
 				.executes { context ->
 					sendEnvironmentVariables(context.source)
@@ -107,7 +107,7 @@ object EnvCommands {
 	private fun setEnvironmentVariable(source: CommandSourceStack, key: String, rawValue: String) {
 		val parsedValue = EnvironmentVariables.parseQuotedValue(rawValue).getOrElse {
 			source.sendFailure(
-				Component.literal("Value must be wrapped in double quotes, for example: /env set $key \"value\"")
+				Component.literal("Value must be wrapped in double quotes, for example: /ob-env set $key \"value\"")
 					.withStyle(ChatFormatting.RED)
 			)
 			return
