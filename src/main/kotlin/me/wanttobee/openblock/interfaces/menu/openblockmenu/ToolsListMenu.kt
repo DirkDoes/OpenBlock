@@ -15,7 +15,8 @@ internal class ToolsListMenu(
 	containerId: Int,
 	playerInventory: Inventory,
 	playerId: UUID,
-) : BaseListMenu(playerId, containerId, playerInventory, rows = 3, contentRows = 2) {
+	initialPage: Int = 0,
+) : BaseListMenu(playerId, containerId, playerInventory, rows = 3, contentRows = 2, initialPage = initialPage) {
 	init {
 		refreshMenu()
 	}
@@ -31,7 +32,7 @@ internal class ToolsListMenu(
 					return@setButton
 				}
 				if (button == 1 && tool.hasConfigurationMenu) {
-					OpenBlockMenu.openCommands(player)
+					OpenBlockMenu.openCommands(player, returnPage = page)
 					return@setButton
 				}
 				if (button == 0 && AiService.setToolEnabled(playerId, tool.name, !AiService.isToolEnabled(playerId, tool.name))) {

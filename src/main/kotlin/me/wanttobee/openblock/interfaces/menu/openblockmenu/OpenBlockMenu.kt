@@ -88,15 +88,15 @@ object OpenBlockMenu {
 		}
 	}
 
-	internal fun openTools(player: ServerPlayer) {
+	internal fun openTools(player: ServerPlayer, page: Int = 0) {
 		open(player, Component.literal("Tools")) { containerId, inventory ->
-			ToolsListMenu(containerId, inventory, player.uuid)
+			ToolsListMenu(containerId, inventory, player.uuid, page)
 		}
 	}
 
-	internal fun openCommands(player: ServerPlayer, page: Int = 0) {
+	internal fun openCommands(player: ServerPlayer, page: Int = 0, returnPage: Int = 0) {
 		open(player, Component.literal("Allowed Commands")) { containerId, inventory ->
-			CommandsListMenu(containerId, inventory, player.uuid, page)
+			CommandsListMenu(containerId, inventory, player.uuid, page, returnPage)
 		}
 	}
 

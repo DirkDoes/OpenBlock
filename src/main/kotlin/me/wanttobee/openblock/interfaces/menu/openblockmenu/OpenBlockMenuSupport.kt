@@ -8,6 +8,7 @@ import me.wanttobee.openblock.ai.sessions.base.SessionMessage
 import me.wanttobee.openblock.ai.sessions.base.SessionSummary
 import me.wanttobee.openblock.ai.toolcalling.base.AiTool
 import me.wanttobee.openblock.util.MinecraftTextFormatter
+import me.wanttobee.openblock.util.colorize
 import net.minecraft.ChatFormatting
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.Style
@@ -19,18 +20,13 @@ import java.util.concurrent.Executors
 import kotlin.math.cos
 
 internal object OpenBlockMenuSupport {
-	fun providerWool(provider: AiProvider): ItemLike {
-		return when (provider.name) {
-			"openai" -> Items.LIGHT_BLUE_WOOL
-			"claude" -> Items.ORANGE_WOOL
-			"google" -> Items.MAGENTA_WOOL
-			else -> Items.WHITE_WOOL
-		}
+	fun providerWool(provider: AiProvider?): ItemLike {
+		return provider?.let { Items.WHITE_WOOL.colorize(it.chatColor) } ?: Items.WHITE_WOOL
 	}
 
 	fun providerWool(providerName: String?): ItemLike {
 		val provider = providerName?.let { Providers.getProviderByName(it).getOrNull() }
-		return provider?.let(::providerWool) ?: Items.WHITE_WOOL
+		return providerWool(provider)
 	}
 
 	fun providerDisplayName(providerName: String?): String {
@@ -121,18 +117,6 @@ internal object OpenBlockMenuSupport {
 		return content.lines().ifEmpty { listOf("") }.map { line ->
 			MinecraftTextFormatter.format(line.ifEmpty { " " }, baseStyle)
 		}
-	}
-
-	fun messageSourceLine(message: SessionMessage): Component {
-		val providerLabel = providerDisplayName(message.providerName)
-		val modelLabel = modelDisplayName(message.providerName, message.modelName)
-		return Component.literal("Model: ").withStyle(ChatFormatting.GRAY)
-			.append(Component.literal("$providerLabel / $modelLabel").withStyle(ChatFormatting.WHITE))
-	}
-
-	fun trimPreview(content: String): String {
-		val singleLine = content.replace('\n', ' ').trim()
-		return if (singleLine.length <= 48) singleLine else singleLine.take(45) + "..."
 	}
 
 	fun toolDisplayName(tool: AiTool): String {
@@ -234,15 +218,15 @@ internal object OpenBlockMenuSupport {
 			}
 		}
 	}
+
+	internal data class ProviderStatus(
+		val reachable: Boolean,
+	)
+
+	internal data class ReasoningOption(
+		val value: String,
+		val label: String,
+		val description: String?,
+		val item: ItemLike,
+	)
 }
-
-internal data class ProviderStatus(
-	val reachable: Boolean,
-)
-
-internal data class ReasoningOption(
-	val value: String,
-	val label: String,
-	val description: String?,
-	val item: ItemLike,
-)

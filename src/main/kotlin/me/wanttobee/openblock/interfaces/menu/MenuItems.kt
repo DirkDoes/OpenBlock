@@ -46,18 +46,6 @@ internal object MenuItems {
 		)
 	}
 
-	fun menuTypeForRows(rows: Int): MenuType<*> {
-		return when (rows) {
-			1 -> MenuType.GENERIC_9x1
-			2 -> MenuType.GENERIC_9x2
-			3 -> MenuType.GENERIC_9x3
-			4 -> MenuType.GENERIC_9x4
-			5 -> MenuType.GENERIC_9x5
-			6 -> MenuType.GENERIC_9x6
-			else -> error("Unsupported chest row count: $rows")
-		}
-	}
-
 	private fun wrapLore(lore: List<Component>): List<Component> {
 		return lore.flatMap(::wrapLoreLine)
 	}

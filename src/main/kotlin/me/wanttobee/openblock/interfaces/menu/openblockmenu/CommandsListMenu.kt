@@ -16,6 +16,7 @@ internal class CommandsListMenu(
 	playerInventory: Inventory,
 	playerId: UUID,
 	initialPage: Int,
+	private val returnPage: Int,
 ) : BaseListMenu(playerId, containerId, playerInventory, rows = 6, contentRows = 5, initialPage = initialPage) {
 	init {
 		refreshMenu()
@@ -35,7 +36,7 @@ internal class CommandsListMenu(
 			}
 		}
 		addPageNavigation(commands.size) { player ->
-			OpenBlockMenu.openTools(player)
+			OpenBlockMenu.openTools(player, returnPage)
 		}
 		broadcastChanges()
 	}

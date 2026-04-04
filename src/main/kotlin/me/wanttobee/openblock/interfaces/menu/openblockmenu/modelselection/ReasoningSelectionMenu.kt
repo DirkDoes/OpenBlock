@@ -3,7 +3,7 @@ package me.wanttobee.openblock.interfaces.menu.openblockmenu.modelselection
 import me.wanttobee.openblock.ai.AiService
 import me.wanttobee.openblock.ai.Providers
 import me.wanttobee.openblock.interfaces.menu.MenuItems
-import me.wanttobee.openblock.interfaces.menu.base.BaseHopperMenu
+import me.wanttobee.openblock.interfaces.menu.base.BaseMenu
 import me.wanttobee.openblock.interfaces.menu.openblockmenu.OpenBlockMenu
 import me.wanttobee.openblock.interfaces.menu.openblockmenu.OpenBlockMenuSupport
 import net.minecraft.ChatFormatting
@@ -11,6 +11,7 @@ import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.player.Inventory
 import net.minecraft.world.inventory.ContainerInput
+import net.minecraft.world.item.Items
 import java.util.UUID
 
 internal class ReasoningSelectionMenu(
@@ -19,7 +20,7 @@ internal class ReasoningSelectionMenu(
 	playerId: UUID,
 	private val providerName: String,
 	private val modelName: String,
-) : BaseHopperMenu(playerId, containerId, playerInventory) {
+) : BaseMenu(playerId, containerId, playerInventory, 1) {
 	init {
 		refreshMenu()
 	}
@@ -32,10 +33,11 @@ internal class ReasoningSelectionMenu(
 		val model = Providers.resolveModel(providerName, modelName).getOrNull() ?: return
 		val options = OpenBlockMenuSupport.reasoningOptions(provider, model)
 		val currentReasoningValue = OpenBlockMenuSupport.currentReasoningValue(playerId, providerName, model.apiName)
+		val optionSlots = listOf(1, 2, 3, 4, 5)
 
-		options.take(5).forEachIndexed { index, option ->
+		options.take(optionSlots.size).forEachIndexed { index, option ->
 			setButton(
-				index,
+				optionSlots[index],
 				MenuItems.menuItem(
 					item = option.item,
 					name = Component.literal(option.label).withStyle(ChatFormatting.WHITE),
@@ -47,6 +49,18 @@ internal class ReasoningSelectionMenu(
 					AiService.selectTarget(playerId, providerName, modelName, option.value)
 						.onSuccess { OpenBlockMenu.openMain(player) }
 				}
+			}
+		}
+
+		setButton(
+			8,
+			MenuItems.menuItem(
+				item = Items.ARROW,
+				name = Component.literal("Back").withStyle(ChatFormatting.YELLOW),
+			)
+		) { player, button, input ->
+			if (button == 0 && input == ContainerInput.PICKUP) {
+				OpenBlockMenu.openModelSelection(player, providerName)
 			}
 		}
 		broadcastChanges()

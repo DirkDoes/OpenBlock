@@ -100,7 +100,7 @@ internal class MainMenuView(
 	}
 
 	private fun modelItem() = MenuItems.menuItem(
-		item = AiService.currentTarget(playerId).getOrNull()?.provider?.let(OpenBlockMenuSupport::providerWool) ?: Items.WHITE_WOOL,
+		item = OpenBlockMenuSupport.providerWool(AiService.currentTarget(playerId).getOrNull()?.provider),
 		name = Component.literal(AiService.currentTarget(playerId).getOrNull()?.model?.displayName ?: "Model").withStyle(ChatFormatting.WHITE),
 		lore = buildList {
 			val target = AiService.currentTarget(playerId).getOrNull()

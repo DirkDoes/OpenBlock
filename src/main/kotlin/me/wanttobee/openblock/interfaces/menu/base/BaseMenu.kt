@@ -1,12 +1,12 @@
 package me.wanttobee.openblock.interfaces.menu.base
 
-import me.wanttobee.openblock.interfaces.menu.MenuItems
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.SimpleContainer
 import net.minecraft.world.entity.player.Inventory
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.inventory.ChestMenu
 import net.minecraft.world.inventory.ContainerInput
+import net.minecraft.world.inventory.MenuType
 import net.minecraft.world.item.ItemStack
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -17,7 +17,7 @@ abstract class BaseMenu(
 	playerInventory: Inventory,
 	protected val rows: Int,
 	private val menuContainer: SimpleContainer = SimpleContainer(rows * 9),
-) : ChestMenu(MenuItems.menuTypeForRows(rows), containerId, playerInventory, menuContainer, rows), ManagedMenu {
+) : ChestMenu(menuTypeForRows(rows), containerId, playerInventory, menuContainer, rows), ManagedMenu {
 	private val buttonHandlers = ConcurrentHashMap<Int, (ServerPlayer, Int, ContainerInput) -> Unit>()
 	private val storageSlots = ConcurrentHashMap.newKeySet<Int>()
 
@@ -86,5 +86,19 @@ abstract class BaseMenu(
 		}
 
 		super.clicked(slotId, button, input, player)
+	}
+
+	companion object {
+		fun menuTypeForRows(rows: Int): MenuType<*> {
+			return when (rows) {
+				1 -> MenuType.GENERIC_9x1
+				2 -> MenuType.GENERIC_9x2
+				3 -> MenuType.GENERIC_9x3
+				4 -> MenuType.GENERIC_9x4
+				5 -> MenuType.GENERIC_9x5
+				6 -> MenuType.GENERIC_9x6
+				else -> error("Unsupported chest row count: $rows")
+			}
+		}
 	}
 }
