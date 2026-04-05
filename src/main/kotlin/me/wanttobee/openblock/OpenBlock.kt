@@ -1,6 +1,7 @@
 package me.wanttobee.openblock
 
 import me.wanttobee.openblock.ai.toolcalling.BlockPlacementToolsSupport
+import me.wanttobee.openblock.benchmarking.BenchmarkTaskInputManager
 import me.wanttobee.openblock.interfaces.chat.ChatModeManager
 import me.wanttobee.openblock.interfaces.commands.Commands
 import me.wanttobee.openblock.interfaces.menu.openblockmenu.OpenBlockMenu
@@ -26,15 +27,14 @@ object OpenBlock : DedicatedServerModInitializer {
 		SandboxManager.bind()
 		ParticleSandboxRenderer.bind()
 		DisplayEntitySandboxRenderer.bind()
+		BenchmarkTaskInputManager.bind()
 		ChatModeManager.bind()
 		OpenBlockMenu.bind()
 		ServerLifecycleEvents.SERVER_STARTED.register { server ->
 			Server = server
 		}
 		ServerLifecycleEvents.SERVER_STOPPED.register { server ->
-			if (Server === server) {
-				Server = null
-			}
+			if (Server === server) Server = null
 		}
 		Commands.register()
 	}

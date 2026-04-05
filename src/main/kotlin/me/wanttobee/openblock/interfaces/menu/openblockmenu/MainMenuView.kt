@@ -32,6 +32,9 @@ internal class MainMenuView(
 
 	private fun refreshMenu() {
 		resetMenu()
+		for (slot in 0 until 9) {
+			setDisplayItem(slot, MenuItems.blockedPaneItem())
+		}
 		setDisplayItem(PING_SLOT, pingItem())
 		setButton(SESSIONS_SLOT, sessionsItem()) { player, button, input ->
 			if (input != ContainerInput.PICKUP) {

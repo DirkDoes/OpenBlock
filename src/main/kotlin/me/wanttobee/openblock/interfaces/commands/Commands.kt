@@ -12,6 +12,7 @@ object Commands {
 		CommandRegistrationCallback.EVENT.register { dispatcher, _, _ ->
 			EnvCommands.register(dispatcher)
 			OpenBlockCommands.register(dispatcher)
+			BenchmarkCommands.register(dispatcher)
 			SandboxCommands.register(dispatcher)
 			ExampleCommands.register(dispatcher)
 			AiCommands.register(dispatcher)

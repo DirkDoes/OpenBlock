@@ -16,9 +16,16 @@ abstract class BaseListMenu(
 		private set
 
 	protected val entriesPerPage: Int = contentRows * 9
-	protected val previousPageSlot: Int = contentRows * 9
-	protected val backSlot: Int = previousPageSlot + 4
-	protected val nextPageSlot: Int = previousPageSlot + 8
+	protected val footerStartSlot: Int = contentRows * 9
+	protected val footerLeftOuterSlot: Int = footerStartSlot
+	protected val footerLeftInnerSlot: Int = footerStartSlot + 1
+	protected val leftFooterFillerSlot: Int = footerStartSlot + 2
+	protected val previousPageSlot: Int = footerStartSlot + 3
+	protected val backSlot: Int = footerStartSlot + 4
+	protected val nextPageSlot: Int = footerStartSlot + 5
+	protected val rightFooterFillerSlot: Int = footerStartSlot + 6
+	protected val footerRightInnerSlot: Int = footerStartSlot + 7
+	protected val footerRightOuterSlot: Int = footerStartSlot + 8
 
 	init {
 		require(rows >= 2) { "List menus need at least 2 rows." }
@@ -35,6 +42,15 @@ abstract class BaseListMenu(
 
 	protected fun addPageNavigation(totalEntryCount: Int, onBack: (net.minecraft.server.level.ServerPlayer) -> Unit) {
 		val pageCount = pageCount(totalEntryCount)
+		setDisplayItem(footerLeftOuterSlot, MenuItems.placeholderPaneItem())
+		setDisplayItem(footerLeftInnerSlot, MenuItems.placeholderPaneItem())
+		setDisplayItem(leftFooterFillerSlot, MenuItems.blockedPaneItem())
+		setDisplayItem(previousPageSlot, MenuItems.placeholderPaneItem())
+		setDisplayItem(backSlot, MenuItems.backItem())
+		setDisplayItem(nextPageSlot, MenuItems.placeholderPaneItem())
+		setDisplayItem(rightFooterFillerSlot, MenuItems.blockedPaneItem())
+		setDisplayItem(footerRightInnerSlot, MenuItems.placeholderPaneItem())
+		setDisplayItem(footerRightOuterSlot, MenuItems.placeholderPaneItem())
 		if (page > 0) {
 			setButton(previousPageSlot, MenuItems.pageArrow("Previous Page")) { _, button, input ->
 				if (button == 0 && input == net.minecraft.world.inventory.ContainerInput.PICKUP) {

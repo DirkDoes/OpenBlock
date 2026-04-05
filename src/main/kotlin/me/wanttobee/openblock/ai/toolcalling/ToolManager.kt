@@ -16,6 +16,7 @@ import me.wanttobee.openblock.ai.toolcalling.tools.GetOnlinePlayersTool
 import me.wanttobee.openblock.ai.toolcalling.tools.GetPlayerDetailsTool
 import me.wanttobee.openblock.ai.toolcalling.tools.InteractBlockTool
 import me.wanttobee.openblock.ai.toolcalling.tools.PlaceBlockTool
+import me.wanttobee.openblock.ai.toolcalling.tools.PopulateContainerTool
 import me.wanttobee.openblock.ai.toolcalling.tools.SandboxTargetTool
 import me.wanttobee.openblock.ai.toolcalling.tools.WatchTool
 import java.util.UUID
@@ -43,6 +44,7 @@ object ToolManager {
 		InteractBlockTool,
 		SandboxTargetTool,
 		PlaceBlockTool,
+		PopulateContainerTool,
 		FillBlocksTool,
 	)
 

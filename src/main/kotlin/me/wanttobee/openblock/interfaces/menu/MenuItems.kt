@@ -4,14 +4,14 @@ import net.minecraft.ChatFormatting
 import net.minecraft.core.component.DataComponents
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.Style
-import net.minecraft.world.inventory.MenuType
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import net.minecraft.world.item.component.ItemLore
+import net.minecraft.world.item.component.TooltipDisplay
 import net.minecraft.world.level.ItemLike
 
 internal object MenuItems {
-	private const val MAX_TOOLTIP_LINE_LENGTH = 30
+	private const val MAX_TOOLTIP_LINE_LENGTH = 40
 	private val nonItalicStyle = Style.EMPTY.withItalic(false)
 
 	fun menuItem(
@@ -20,6 +20,7 @@ internal object MenuItems {
 		lore: List<Component> = emptyList(),
 		count: Int = 1,
 		glint: Boolean = false,
+		hideTooltip: Boolean = false,
 	): ItemStack {
 		return ItemStack(item, count.coerceIn(1, 64)).apply {
 			set(DataComponents.CUSTOM_NAME, name.copy().withStyle(nonItalicStyle))
@@ -29,13 +30,17 @@ internal object MenuItems {
 			if (glint) {
 				set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true)
 			}
+			if (hideTooltip) {
+				set(DataComponents.TOOLTIP_DISPLAY, TooltipDisplay(true, linkedSetOf()))
+			}
 		}
 	}
 
 	fun backItem(): ItemStack {
 		return menuItem(
-			item = Items.ARROW,
+			item = Items.NETHERITE_UPGRADE_SMITHING_TEMPLATE,
 			name = Component.literal("Back").withStyle(ChatFormatting.YELLOW),
+			hideTooltip = true,
 		)
 	}
 
@@ -44,6 +49,28 @@ internal object MenuItems {
 			item = Items.ARROW,
 			name = Component.literal(label).withStyle(ChatFormatting.YELLOW),
 		)
+	}
+
+	fun blockedPaneItem(): ItemStack {
+		return menuItem(
+			item = Items.BLACK_STAINED_GLASS_PANE,
+			name = Component.literal(" "),
+			hideTooltip = true,
+		)
+	}
+
+	fun placeholderPaneItem(): ItemStack {
+		return menuItem(
+			item = Items.GRAY_STAINED_GLASS_PANE,
+			name = Component.literal(" "),
+			hideTooltip = true,
+		)
+	}
+
+	fun namelessPlaceholderPaneItem(): ItemStack {
+		return ItemStack(Items.GRAY_STAINED_GLASS_PANE).apply {
+			set(DataComponents.TOOLTIP_DISPLAY, TooltipDisplay(true, linkedSetOf()))
+		}
 	}
 
 	private fun wrapLore(lore: List<Component>): List<Component> {

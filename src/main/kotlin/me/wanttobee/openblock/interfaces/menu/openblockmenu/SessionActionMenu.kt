@@ -31,9 +31,9 @@ internal class SessionActionMenu(
 		val session = AiService.allSessions(playerId).firstOrNull { it.id == sessionId }
 
 		setButton(
-			0,
+			2,
 			MenuItems.menuItem(
-				item = Items.ARROW,
+				item = Items.SNOWBALL,
 				name = Component.literal("Cancel").withStyle(ChatFormatting.YELLOW),
 			)
 		) { player, button, input ->
@@ -42,12 +42,13 @@ internal class SessionActionMenu(
 			}
 		}
 
-		setDisplayItem(2, sessionInfoItem(session))
+		setDisplayItem(0, sessionInfoItem(session))
+		setDisplayItem(1, MenuItems.placeholderPaneItem())
 
 		setButton(
 			3,
 			MenuItems.menuItem(
-				item = Items.EMERALD,
+				item = Items.SLIME_BALL,
 				name = Component.literal("Select").withStyle(ChatFormatting.GREEN),
 				lore = listOf(Component.literal("Make this the active session").withStyle(ChatFormatting.GRAY)),
 			)

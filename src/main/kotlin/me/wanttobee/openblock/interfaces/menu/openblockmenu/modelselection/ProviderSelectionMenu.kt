@@ -16,7 +16,7 @@ internal class ProviderSelectionMenu(
 	containerId: Int,
 	playerInventory: Inventory,
 	playerId: UUID,
-) : BaseMenu(playerId, containerId, playerInventory, 3) {
+) : BaseMenu(playerId, containerId, playerInventory, 2) {
 	init {
 		refreshMenu()
 	}
@@ -26,10 +26,13 @@ internal class ProviderSelectionMenu(
 	private fun refreshMenu() {
 		resetMenu()
 		val selectedProvider = AiService.currentTarget(playerId).getOrNull()?.provider?.name
-		setProviderButton(11, "openai", selectedProvider == "openai")
-		setProviderButton(13, "claude", selectedProvider == "claude")
-		setProviderButton(15, "google", selectedProvider == "google")
-		setButton(22, MenuItems.backItem()) { player, button, input ->
+		setProviderButton(2, "openai", selectedProvider == "openai")
+		setProviderButton(4, "claude", selectedProvider == "claude")
+		setProviderButton(6, "google", selectedProvider == "google")
+		for (slot in 9..17) {
+			setDisplayItem(slot, MenuItems.blockedPaneItem())
+		}
+		setButton(13, MenuItems.backItem()) { player, button, input ->
 			if (button == 0 && input == net.minecraft.world.inventory.ContainerInput.PICKUP) {
 				OpenBlockMenu.openMain(player)
 			}

@@ -29,6 +29,9 @@ internal class ReasoningSelectionMenu(
 
 	private fun refreshMenu() {
 		resetMenu()
+		for (slot in 0 until 9) {
+			setDisplayItem(slot, MenuItems.blockedPaneItem())
+		}
 		val provider = Providers.getProviderByName(providerName).getOrNull() ?: return
 		val model = Providers.resolveModel(providerName, modelName).getOrNull() ?: return
 		val options = OpenBlockMenuSupport.reasoningOptions(provider, model)
@@ -54,10 +57,7 @@ internal class ReasoningSelectionMenu(
 
 		setButton(
 			8,
-			MenuItems.menuItem(
-				item = Items.ARROW,
-				name = Component.literal("Back").withStyle(ChatFormatting.YELLOW),
-			)
+			MenuItems.backItem()
 		) { player, button, input ->
 			if (button == 0 && input == ContainerInput.PICKUP) {
 				OpenBlockMenu.openModelSelection(player, providerName)

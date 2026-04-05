@@ -17,13 +17,16 @@ import net.minecraft.core.Direction
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.network.Connection
 import net.minecraft.network.protocol.PacketFlow
+import net.minecraft.resources.Identifier
 import net.minecraft.server.level.ClientInformation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.server.network.CommonListenerCookie
 import net.minecraft.server.network.ServerGamePacketListenerImpl
+import net.minecraft.world.Container
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
+import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.GameType
 import net.minecraft.world.level.Level
@@ -154,14 +157,19 @@ object BlockPlacementToolsSupport {
 
 		val blockState = level.getBlockState(targetPosition)
 		val blockId = BuiltInRegistries.BLOCK.getKey(blockState.block).toString()
+		val inventoryContents = (level.getBlockEntity(targetPosition) as? Container)?.let(::describeContainerContents)
 
 		return AiToolExecution(
-			payload = linkedMapOf(
+			payload = linkedMapOf<String, Any?>(
 				"position" to formatPos(targetPosition),
 				"block" to blockId,
 				"is_air" to blockState.isAir,
 				"properties" to blockProperties(blockState),
-			)
+			).apply {
+				if (inventoryContents != null) {
+					this["entries"] = inventoryContents
+				}
+			}
 		)
 	}
 
@@ -354,6 +362,89 @@ object BlockPlacementToolsSupport {
 		)
 	}
 
+	fun populateContainer(
+		playerId: UUID?,
+		position: String,
+		clearFirst: String,
+		entries: String,
+	): AiToolExecution {
+		val source = toolContext(playerId).getOrElse { return failedExecution(it.message ?: "Unknown tool context error.") }
+		val targetPosition = parseBlockPos(source, position).getOrElse { return failedExecution("Invalid position: $position") }
+		if (!isAllowedPosition(playerId, source, targetPosition)) {
+			return failedExecution("Requested position is outside the active sandbox.")
+		}
+		val exclusionNames = exclusionNamesAt(playerId, source, targetPosition)
+		if (exclusionNames.isNotEmpty()) {
+			return skippedExecution(
+				message = "Skipped container population because the target block is a sandbox exclusion block.",
+				payload = linkedMapOf(
+					"position" to formatPos(targetPosition),
+					"skipped" to true,
+					"exclusions" to exclusionNames,
+					"warning" to "Target block is an exclusion block and its contents were left unchanged.",
+				),
+			)
+		}
+
+		val shouldClearFirst = parseBooleanArgument(clearFirst, "clear_first")
+			.getOrElse { return failedExecution(it.message ?: "Invalid clear_first value.") }
+		val parsedEntries = parseContainerEntries(entries)
+			.getOrElse { return failedExecution(it.message ?: "Invalid entries value.") }
+
+		val level = source.level
+		if (!level.isLoaded(targetPosition)) {
+			return failedExecution("Requested position is not currently loaded.")
+		}
+
+		val container = level.getBlockEntity(targetPosition) as? Container
+			?: return failedExecution("Target block does not support storing items.")
+
+		val slotCount = container.containerSize
+		if (parsedEntries.any { entry -> entry.slot !in 0 until slotCount }) {
+			val invalidSlot = parsedEntries.first { entry -> entry.slot !in 0 until slotCount }.slot
+			return failedExecution("Invalid slot $invalidSlot for target container with $slotCount slots.")
+		}
+
+		val resolvedEntries = parsedEntries.map { entry ->
+			ResolvedContainerEntry(
+				slot = entry.slot,
+				item = resolveItem(entry.item).getOrElse { return failedExecution(it.message ?: "Invalid item id.") },
+				count = entry.count,
+			)
+		}
+		val oversizedEntry = resolvedEntries.firstOrNull { entry ->
+			entry.count > ItemStack(entry.item).maxStackSize
+		}
+		if (oversizedEntry != null) {
+			return failedExecution(
+				"Item ${BuiltInRegistries.ITEM.getKey(oversizedEntry.item)} cannot stack to ${oversizedEntry.count}."
+			)
+		}
+
+		if (shouldClearFirst) {
+			container.clearContent()
+		}
+		for (entry in resolvedEntries) {
+			container.setItem(entry.slot, ItemStack(entry.item, entry.count))
+		}
+		container.setChanged()
+
+		return AiToolExecution(
+			payload = linkedMapOf(
+				"position" to formatPos(targetPosition),
+				"clear_first" to shouldClearFirst,
+				"container_slots" to slotCount,
+				"entries" to resolvedEntries.map { entry ->
+					linkedMapOf(
+						"slot" to entry.slot,
+						"item" to BuiltInRegistries.ITEM.getKey(entry.item).toString(),
+						"count" to entry.count,
+					)
+				},
+			),
+		)
+	}
+
 	private fun parseObservationTicks(rawTickCount: String): Result<Int> {
 		val trimmed = rawTickCount.trim()
 		if (trimmed.isBlank()) {
@@ -366,6 +457,55 @@ object BlockPlacementToolsSupport {
 			return Result.failure(IllegalArgumentException("Tick count must be between 0 and 1200."))
 		}
 		return Result.success(value)
+	}
+
+	private fun parseBooleanArgument(rawValue: String, argumentName: String): Result<Boolean> {
+		return when (rawValue.trim().lowercase()) {
+			"true" -> Result.success(true)
+			"false" -> Result.success(false)
+			else -> Result.failure(IllegalArgumentException("$argumentName must be true or false."))
+		}
+	}
+
+	private fun describeContainerContents(container: Container): List<Map<String, Any>> {
+		return (0 until container.containerSize).mapNotNull { slot ->
+			val stack = container.getItem(slot)
+			if (stack.isEmpty) {
+				null
+			} else {
+				linkedMapOf(
+					"slot" to slot,
+					"item" to BuiltInRegistries.ITEM.getKey(stack.item).toString(),
+					"count" to stack.count,
+				)
+			}
+		}
+	}
+
+	private fun observedContainerEntries(container: Container): Map<Int, ObservedContainerEntry> {
+		return buildMap {
+			for (slot in 0 until container.containerSize) {
+				val stack = container.getItem(slot)
+				if (stack.isEmpty) {
+					continue
+				}
+				put(
+					slot,
+					ObservedContainerEntry(
+						item = BuiltInRegistries.ITEM.getKey(stack.item).toString(),
+						count = stack.count,
+					)
+				)
+			}
+		}
+	}
+
+	private fun containerEntryPayload(slot: Int, entry: ObservedContainerEntry?): Map<String, Any> {
+		return linkedMapOf(
+			"slot" to slot,
+			"item" to (entry?.item ?: "minecraft:air"),
+			"count" to (entry?.count ?: 0),
+		)
 	}
 
 	private fun startObservation(server: net.minecraft.server.MinecraftServer, observation: ActiveObservation) {
@@ -426,6 +566,7 @@ object BlockPlacementToolsSupport {
 				ObservedBlockState(
 					blockId = "unloaded",
 					properties = emptyMap(),
+					entries = emptyMap(),
 				)
 			)
 		}
@@ -435,6 +576,9 @@ object BlockPlacementToolsSupport {
 			ObservedBlockState(
 				blockId = BuiltInRegistries.BLOCK.getKey(blockState.block).toString(),
 				properties = blockProperties(blockState),
+				entries = (level.getBlockEntity(position) as? Container)
+					?.let(::observedContainerEntries)
+					.orEmpty(),
 			)
 		)
 	}
@@ -459,6 +603,7 @@ object BlockPlacementToolsSupport {
 		return buildList {
 			for (segment in segments) {
 				val relevantKeys = relevantPropertyKeys(segment)
+				val relevantSlots = relevantContainerSlots(segment)
 				for ((index, snapshot) in segment.withIndex()) {
 					val entry = linkedMapOf<String, Any>(
 						"tick" to snapshot.tick,
@@ -468,6 +613,11 @@ object BlockPlacementToolsSupport {
 						if (relevantKeys.isNotEmpty()) {
 							entry["properties"] = relevantKeys.associateWith { key ->
 								snapshot.state.properties[key].orEmpty()
+							}
+						}
+						if (relevantSlots.isNotEmpty()) {
+							entry["entries"] = relevantSlots.map { slot ->
+								containerEntryPayload(slot, snapshot.state.entries[slot])
 							}
 						}
 					} else {
@@ -482,6 +632,18 @@ object BlockPlacementToolsSupport {
 						}
 						if (changedProperties.isNotEmpty()) {
 							entry["properties"] = changedProperties
+						}
+						val changedEntries = relevantSlots.mapNotNull { slot ->
+							val previousEntry = previousState.entries[slot]
+							val currentEntry = snapshot.state.entries[slot]
+							if (previousEntry == currentEntry) {
+								null
+							} else {
+								containerEntryPayload(slot, currentEntry)
+							}
+						}
+						if (changedEntries.isNotEmpty()) {
+							entry["entries"] = changedEntries
 						}
 					}
 					add(entry)
@@ -504,6 +666,22 @@ object BlockPlacementToolsSupport {
 			}
 		}
 		return relevantKeys.sorted()
+	}
+
+	private fun relevantContainerSlots(segment: List<ObservedSnapshot>): List<Int> {
+		if (segment.size <= 1) {
+			return emptyList()
+		}
+
+		val relevantSlots = linkedSetOf<Int>()
+		for ((previous, current) in segment.zipWithNext()) {
+			for (slot in previous.state.entries.keys + current.state.entries.keys) {
+				if (previous.state.entries[slot] != current.state.entries[slot]) {
+					relevantSlots += slot
+				}
+			}
+		}
+		return relevantSlots.sorted()
 	}
 
 	private fun toolContext(playerId: UUID?): Result<CommandSourceStack> {
@@ -680,6 +858,81 @@ object BlockPlacementToolsSupport {
 		}
 
 		return Result.success(entries.joinToString(prefix = "[", postfix = "]", separator = ","))
+	}
+
+	private fun parseContainerEntries(rawEntries: String): Result<List<ContainerEntry>> {
+		val element = runCatching { JsonParser.parseString(rawEntries) }
+			.getOrElse { return Result.failure(IllegalArgumentException("Entries must be valid JSON.", it)) }
+		if (!element.isJsonArray) {
+			return Result.failure(IllegalArgumentException("Entries must be a JSON array."))
+		}
+
+		val entries = mutableListOf<ContainerEntry>()
+		for ((index, entryElement) in element.asJsonArray.withIndex()) {
+			if (!entryElement.isJsonObject) {
+				return Result.failure(IllegalArgumentException("Entry $index must be a JSON object."))
+			}
+			val entryObject = entryElement.asJsonObject
+			val slotElement = entryObject.get("slot")
+				?: return Result.failure(IllegalArgumentException("Entry $index is missing slot."))
+			val itemElement = entryObject.get("item")
+				?: return Result.failure(IllegalArgumentException("Entry $index is missing item."))
+			val countElement = entryObject.get("count")
+				?: return Result.failure(IllegalArgumentException("Entry $index is missing count."))
+			if (!slotElement.isJsonPrimitive || !slotElement.asJsonPrimitive.isNumber) {
+				return Result.failure(IllegalArgumentException("Entry $index slot must be a whole number."))
+			}
+			if (!itemElement.isJsonPrimitive || !itemElement.asJsonPrimitive.isString) {
+				return Result.failure(IllegalArgumentException("Entry $index item must be a string item id."))
+			}
+			if (!countElement.isJsonPrimitive || !countElement.asJsonPrimitive.isNumber) {
+				return Result.failure(IllegalArgumentException("Entry $index count must be a whole number."))
+			}
+
+			val slot = slotElement.asInt
+			val count = countElement.asInt
+			if (slot < 0) {
+				return Result.failure(IllegalArgumentException("Entry $index slot must be 0 or greater."))
+			}
+			if (count <= 0) {
+				return Result.failure(IllegalArgumentException("Entry $index count must be at least 1."))
+			}
+
+			entries += ContainerEntry(
+				slot = slot,
+				item = itemElement.asString,
+				count = count,
+			)
+		}
+		val duplicateSlot = entries.groupBy(ContainerEntry::slot).entries.firstOrNull { (_, slotEntries) -> slotEntries.size > 1 }?.key
+		if (duplicateSlot != null) {
+			return Result.failure(IllegalArgumentException("Entries contain duplicate slot $duplicateSlot."))
+		}
+
+		return Result.success(entries)
+	}
+
+	private fun resolveItem(rawItem: String): Result<Item> {
+		val normalized = rawItem.trim()
+		if (normalized.isBlank() || normalized.any(Char::isWhitespace)) {
+			return Result.failure(IllegalArgumentException("Invalid item id: $rawItem"))
+		}
+		val identifier = parseIdentifier(normalized).getOrElse { return Result.failure(it) }
+		if (!BuiltInRegistries.ITEM.containsKey(identifier)) {
+			return Result.failure(IllegalArgumentException("Unknown item id: $rawItem"))
+		}
+		return Result.success(BuiltInRegistries.ITEM.getValue(identifier))
+	}
+
+	private fun parseIdentifier(rawValue: String): Result<Identifier> {
+		val namespace = rawValue.substringBefore(':', missingDelimiterValue = "minecraft")
+		val path = rawValue.substringAfter(':', missingDelimiterValue = rawValue)
+		return runCatching {
+			Identifier.fromNamespaceAndPath(namespace, path)
+		}.fold(
+			onSuccess = Result.Companion::success,
+			onFailure = { Result.failure(IllegalArgumentException("Invalid identifier: $rawValue", it)) },
+		)
 	}
 
 	private fun propertyValue(value: JsonElement): Result<String> {
@@ -968,5 +1221,23 @@ object BlockPlacementToolsSupport {
 	private data class ObservedBlockState(
 		val blockId: String,
 		val properties: Map<String, String>,
+		val entries: Map<Int, ObservedContainerEntry>,
+	)
+
+	private data class ObservedContainerEntry(
+		val item: String,
+		val count: Int,
+	)
+
+	private data class ContainerEntry(
+		val slot: Int,
+		val item: String,
+		val count: Int,
+	)
+
+	private data class ResolvedContainerEntry(
+		val slot: Int,
+		val item: Item,
+		val count: Int,
 	)
 }

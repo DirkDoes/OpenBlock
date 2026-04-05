@@ -10,41 +10,60 @@ import me.wanttobee.openblock.ai.toolcalling.base.ToolArguments
 import net.minecraft.world.item.Items
 import java.util.UUID
 
-object GetBlockDetailsTool : AiTool {
+object PopulateContainerTool : AiTool {
 	private val positionParameter = AiToolParameter(
 		name = "position",
 		description = "Block position. AI tool calls should send x,y,z with no spaces, for example 10,64,-3 or ^,^1,^20. Manual /ob-invoke-tool usage accepts normal spaced Minecraft coordinates.",
 		manualInput = AiToolParameter.ManualInput.BLOCK_POS,
 	)
+	private val clearFirstParameter = AiToolParameter(
+		name = "clear_first",
+		description = "Whether to clear the whole container before applying the listed entries. Must be true or false.",
+	)
+	private val entriesParameter = AiToolParameter(
+		name = "entries",
+		description = "JSON array of slot overrides, for example [{\"slot\":0,\"item\":\"minecraft:redstone\",\"count\":32}]. Each entry must include slot, item, and count.",
+	)
 
-	override val name = "get_block_details"
+	override val name = "populate_container"
 	override val description =
-		"Reads one block at a position and returns its block id plus all exposed block-state properties like facing, half, powered, waterlogged, and similar details. If the block is a container, it also reads its occupied contents as slot, item, and count entries."
+		"Puts items into a container block such as a hopper, chest, barrel, dispenser, dropper, or furnace-like block. The listed entries overwrite the specified slots exactly."
 	override val enabledByDefault = true
-	override val parameters = listOf(positionParameter)
-	override val menuIcon = Items.GRASS_BLOCK
+	override val parameters = listOf(positionParameter, clearFirstParameter, entriesParameter)
+	override val menuIcon = Items.HOPPER
 
 	override fun suggestions(
 		playerId: UUID?,
 		parameterIndex: Int,
 		arguments: Map<String, String>,
 	): Result<List<AiToolSuggestion>> {
-		if (parameterIndex != 0) {
-			return Result.success(emptyList())
+		return when (parameterIndex) {
+			0 -> ToolPositionSuggestions.positionSuggestions(playerId)
+			1 -> Result.success(listOf(
+				AiToolSuggestion("false"),
+				AiToolSuggestion("true"),
+			))
+			2 -> Result.success(listOf(
+				AiToolSuggestion("[{\"slot\":0,\"item\":\"minecraft:redstone\",\"count\":32}]"),
+			))
+			else -> Result.success(emptyList())
 		}
-		return ToolPositionSuggestions.positionSuggestions(playerId)
 	}
 
 	override fun conversationMessage(playerId: UUID?, arguments: ToolArguments): Result<String?> {
 		val position = arguments.get<String>(positionParameter.name).getOrElse { return Result.failure(it) }
-		return Result.success("reading block at $position")
+		return Result.success("populating container at $position")
 	}
 
 	override fun execute(boundedPlayerId: UUID?, arguments: ToolArguments): Result<AiToolExecution> {
 		val position = arguments.get<String>(positionParameter.name).getOrElse { return Result.failure(it) }
-		return Result.success(BlockPlacementToolsSupport.getBlockDetails(
+		val clearFirst = arguments.get<String>(clearFirstParameter.name).getOrElse { return Result.failure(it) }
+		val entries = arguments.get<String>(entriesParameter.name).getOrElse { return Result.failure(it) }
+		return Result.success(BlockPlacementToolsSupport.populateContainer(
 			playerId = boundedPlayerId,
 			position = position,
+			clearFirst = clearFirst,
+			entries = entries,
 		))
 	}
 }
