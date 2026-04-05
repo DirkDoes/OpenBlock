@@ -11,13 +11,19 @@ import me.wanttobee.openblock.ai.toolcalling.base.AiTool
 import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import me.wanttobee.openblock.ai.toolcalling.ToolManager
 import me.wanttobee.openblock.sandbox.Sandbox
+import me.wanttobee.openblock.sandbox.SandboxFloorBuilder
 import me.wanttobee.openblock.sandbox.SandboxManager
 import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceKey
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.Level
 import java.util.UUID
 
 object AiService {
+	private const val INTERRUPT_PROMPT = "stop"
+	private const val INTERRUPT_NOTE =
+		"Conversation note: the user interrupted the previous AI response. Any tool calls that had already started may still finish, but the interrupted response must not continue from that point."
+
 	fun pingProviders(): List<Result<AiProvider>> {
 		return Providers.all.map { provider ->
 			runCatching {
@@ -44,28 +50,52 @@ object AiService {
 		reasoningValue: String? = null,
 	): Result<AiTargetManager.AiTarget> = AiTargetManager.selectTarget(playerId, providerName, modelId, reasoningValue)
 
+	fun isInterruptPrompt(message: String): Boolean {
+		return message.trim().equals(INTERRUPT_PROMPT, ignoreCase = true)
+	}
+
+	fun interruptCurrentGeneration(playerId: UUID, message: String): Result<Boolean> {
+		val session = currentSession(playerId).getOrElse { return Result.failure(it) }
+		val interruptedCount = session.interruptActiveGenerations()
+		if (interruptedCount <= 0) {
+			return Result.success(false)
+		}
+
+		session.addUserMessage(message, supplementalHiddenContent = INTERRUPT_NOTE)
+		return Result.success(true)
+	}
+
 	fun sendMessage(
 		playerId: UUID,
 		message: String,
-		onActionChange: (String) -> Unit = {},
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit = { _, _ -> },
 		onMessageAdded: (SessionMessage) -> Unit = {},
 	): Pair<AiTargetManager.AiTarget, List<SessionMessage>>? {
 		val target = currentTarget(playerId).getOrElse { return null }
 		val session = currentSession(playerId).getOrElse { return null }
+		val generationId = session.beginGeneration()
 		session.addUserMessage(message)
 		val messageCountBeforeGenerate = session.messages().size
-		val generationResult = try {
-			target.provider.generate(target.model, session, onActionChange, onMessageAdded)
-		} catch (exception: Exception) {
-			session.addErrorMessage(exception.message ?: "Unknown error")
-			Result.failure(exception)
+		val generationResult = runCatching {
+			target.provider.generate(target.model, session, generationId, onActionChange, onMessageAdded)
+		}.fold(
+			onSuccess = { it },
+			onFailure = { exception ->
+				session.addErrorMessage(exception.message ?: "Unknown error")
+				Result.failure(exception)
+			},
+		).also {
+			session.finishGeneration(generationId)
 		}
-		val succeeded = generationResult.isSuccess
+		val completedNormally = generationResult.getOrNull() == true
+		val interrupted = generationResult.getOrNull() == false
 		val newMessages = session.messages()
 			.drop(messageCountBeforeGenerate)
 			.filter { it.type != SessionMessage.Type.USER && it.type != SessionMessage.Type.TOOL }
-		return if (succeeded && newMessages.isNotEmpty()) {
+		return if (completedNormally && newMessages.isNotEmpty()) {
 			target to newMessages
+		} else if (interrupted) {
+			target to emptyList()
 		} else if (newMessages.isNotEmpty()) {
 			target to newMessages
 		} else {
@@ -116,26 +146,26 @@ object AiService {
 			.onSuccess(session::updateSandboxState)
 	}
 
-	fun addSandboxInteraction(
+	fun addSandboxTarget(
 		playerId: UUID,
 		dimension: ResourceKey<Level>,
 		name: String,
 		position: BlockPos,
 	): Result<Sandbox> {
 		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
-		return SandboxManager.addInteraction(session.id, dimension, name, position)
+		return SandboxManager.addTarget(session.id, dimension, name, position)
 			.onSuccess(session::updateSandboxState)
 	}
 
-	fun removeSandboxInteraction(playerId: UUID, name: String): Result<Sandbox> {
+	fun removeSandboxTarget(playerId: UUID, name: String): Result<Sandbox> {
 		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
-		return SandboxManager.removeInteraction(session.id, name)
+		return SandboxManager.removeTarget(session.id, name)
 			.onSuccess(session::updateSandboxState)
 	}
 
-	fun clearSandboxInteractions(playerId: UUID): Result<Sandbox> {
+	fun clearSandboxTargets(playerId: UUID): Result<Sandbox> {
 		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
-		return SandboxManager.clearInteractions(session.id)
+		return SandboxManager.clearTargets(session.id)
 			.onSuccess(session::updateSandboxState)
 	}
 
@@ -145,15 +175,21 @@ object AiService {
 			.onSuccess { session.updateSandboxState(null) }
 	}
 
+	fun placeSandboxFloor(playerId: UUID, level: ServerLevel): Result<SandboxFloorBuilder.PlacementSummary> {
+		return currentSandbox(playerId).mapCatching { sandbox ->
+			SandboxFloorBuilder.placeFloor(level, sandbox).getOrThrow()
+		}
+	}
+
 	fun sandboxExclusionNames(playerId: UUID): Result<List<String>> {
 		return currentSandbox(playerId).map { sandbox ->
 			sandbox.exclusions.keys.sorted()
 		}
 	}
 
-	fun sandboxInteractionNames(playerId: UUID): Result<List<String>> {
+	fun sandboxTargetNames(playerId: UUID): Result<List<String>> {
 		return currentSandbox(playerId).map { sandbox ->
-			sandbox.interactions.keys.sorted()
+			sandbox.targets.keys.sorted()
 		}
 	}
 

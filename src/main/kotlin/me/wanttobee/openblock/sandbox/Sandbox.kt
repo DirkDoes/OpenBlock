@@ -10,7 +10,7 @@ data class Sandbox(
 	val dimension: ResourceKey<Level>,
 	val boundary: SandboxRegion,
 	val exclusions: Map<String, BlockPos> = emptyMap(),
-	val interactions: Map<String, BlockPos> = emptyMap(),
+	val targets: Map<String, BlockPos> = emptyMap(),
 ) {
 	fun minCorner(): BlockPos = boundary.minCorner()
 
@@ -61,12 +61,12 @@ data class Sandbox(
 			}
 	}
 
-	fun interactionDescription(): String {
-		if (interactions.isEmpty()) {
+	fun targetDescription(): String {
+		if (targets.isEmpty()) {
 			return "none"
 		}
 
-		return interactions
+		return targets
 			.map { (name, position) -> NamedPoint(name, position.immutable()) }
 			.sortedWith(compareBy({ it.position.x }, { it.position.y }, { it.position.z }, { it.name }))
 			.joinToString(", ") { entry ->
@@ -77,14 +77,15 @@ data class Sandbox(
 	fun promptDescription(): String {
 		return buildString {
 			append("Sandbox restriction: AI tool calls must stay inside ${boundary.description()} in dimension $dimension.")
+			append(" Unless otherwise specified, there are always support blocks directly under the sandbox that may be used for placement.")
 			if (exclusions.isNotEmpty()) {
 				append(" Excluded blocks inside the sandbox may be read and interacted with, but must not be changed: ")
 				append(exclusionDescription())
 				append('.')
 			}
-			if (interactions.isNotEmpty()) {
-				append(" Named sandbox interaction points: ")
-				append(interactionDescription())
+			if (targets.isNotEmpty()) {
+				append(" Named sandbox target points for interaction or observation: ")
+				append(targetDescription())
 				append('.')
 			}
 		}

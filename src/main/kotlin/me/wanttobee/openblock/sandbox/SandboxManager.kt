@@ -113,48 +113,48 @@ object SandboxManager {
 		return Result.success(updated)
 	}
 
-	fun addInteraction(sessionId: UUID, dimension: ResourceKey<Level>, name: String, position: BlockPos): Result<Sandbox> {
+	fun addTarget(sessionId: UUID, dimension: ResourceKey<Level>, name: String, position: BlockPos): Result<Sandbox> {
 		val sandbox = getSandbox(sessionId).getOrElse { return Result.failure(it) }
 		if (sandbox.dimension != dimension) {
-			return Result.failure(IllegalArgumentException("Interaction must be added in the sandbox dimension."))
+			return Result.failure(IllegalArgumentException("Target must be added in the sandbox dimension."))
 		}
 		if (!sandbox.boundary.contains(position)) {
-			return Result.failure(IllegalArgumentException("Interaction must stay inside the sandbox boundary."))
+			return Result.failure(IllegalArgumentException("Target must stay inside the sandbox boundary."))
 		}
 		if (name.isBlank()) {
-			return Result.failure(IllegalArgumentException("Interaction name cannot be blank."))
+			return Result.failure(IllegalArgumentException("Target name cannot be blank."))
 		}
-		if (name in sandbox.interactions) {
-			return Result.failure(IllegalArgumentException("Sandbox interaction already exists: $name"))
+		if (name in sandbox.targets) {
+			return Result.failure(IllegalArgumentException("Sandbox target already exists: $name"))
 		}
 
-		val updated = sandbox.copy(interactions = sandbox.interactions + (name to position.immutable()))
+		val updated = sandbox.copy(targets = sandbox.targets + (name to position.immutable()))
 		sandboxesBySession[sessionId] = updated
 		recordUpdate(sessionId, "Sandbox changed to: ${updated.promptDescription()}")
 		notifySessionSandboxChanged(sessionId, updated)
 		return Result.success(updated)
 	}
 
-	fun removeInteraction(sessionId: UUID, name: String): Result<Sandbox> {
+	fun removeTarget(sessionId: UUID, name: String): Result<Sandbox> {
 		val sandbox = getSandbox(sessionId).getOrElse { return Result.failure(it) }
-		if (name !in sandbox.interactions) {
-			return Result.failure(NoSuchElementException("Unknown sandbox interaction: $name"))
+		if (name !in sandbox.targets) {
+			return Result.failure(NoSuchElementException("Unknown sandbox target: $name"))
 		}
 
-		val updated = sandbox.copy(interactions = sandbox.interactions - name)
+		val updated = sandbox.copy(targets = sandbox.targets - name)
 		sandboxesBySession[sessionId] = updated
 		recordUpdate(sessionId, "Sandbox changed to: ${updated.promptDescription()}")
 		notifySessionSandboxChanged(sessionId, updated)
 		return Result.success(updated)
 	}
 
-	fun clearInteractions(sessionId: UUID): Result<Sandbox> {
+	fun clearTargets(sessionId: UUID): Result<Sandbox> {
 		val sandbox = getSandbox(sessionId).getOrElse { return Result.failure(it) }
-		if (sandbox.interactions.isEmpty()) {
+		if (sandbox.targets.isEmpty()) {
 			return Result.success(sandbox)
 		}
 
-		val updated = sandbox.copy(interactions = emptyMap())
+		val updated = sandbox.copy(targets = emptyMap())
 		sandboxesBySession[sessionId] = updated
 		recordUpdate(sessionId, "Sandbox changed to: ${updated.promptDescription()}")
 		notifySessionSandboxChanged(sessionId, updated)
@@ -216,9 +216,9 @@ object SandboxManager {
 		}
 	}
 
-	fun interactionNames(sessionId: UUID): Result<List<String>> {
+	fun targetNames(sessionId: UUID): Result<List<String>> {
 		return getSandbox(sessionId).map { sandbox ->
-			sandbox.interactions.keys.sorted()
+			sandbox.targets.keys.sorted()
 		}
 	}
 

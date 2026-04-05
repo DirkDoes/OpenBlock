@@ -8,6 +8,7 @@ import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
 import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import me.wanttobee.openblock.sandbox.Sandbox
 import me.wanttobee.openblock.sandbox.SandboxRegion
+import com.google.gson.annotations.SerializedName
 import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.Registries
 import net.minecraft.resources.ResourceKey
@@ -227,7 +228,7 @@ object SessionLogger {
 						position = persistedBlockPos(position),
 					)
 				},
-				interactions = it.interactions.map { (name, position) ->
+				targets = it.targets.map { (name, position) ->
 					PersistedNamedPoint(
 						name = name,
 						position = persistedBlockPos(position),
@@ -280,7 +281,7 @@ object SessionLogger {
 				exclusions = persisted.exclusions.associate { entry ->
 					entry.name to restoredBlockPos(entry.position)
 				},
-				interactions = persisted.interactions.associate { entry ->
+				targets = persisted.targets.associate { entry ->
 					entry.name to restoredBlockPos(entry.position)
 				},
 			)
@@ -384,7 +385,8 @@ object SessionLogger {
 		val dimension: String,
 		val boundary: PersistedRegion,
 		val exclusions: List<PersistedNamedPoint>,
-		val interactions: List<PersistedNamedPoint>,
+		@SerializedName(value = "targets", alternate = ["interactions"])
+		val targets: List<PersistedNamedPoint>,
 	)
 
 	private data class PersistedRegion(

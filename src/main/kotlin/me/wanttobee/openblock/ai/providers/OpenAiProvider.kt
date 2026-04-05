@@ -10,6 +10,7 @@ import com.openai.models.responses.ResponseInputItem
 import com.openai.models.responses.ResponseOutputItem
 import com.openai.models.Reasoning
 import com.openai.models.ReasoningEffort
+import me.wanttobee.openblock.ai.AiActionBarManager
 import me.wanttobee.openblock.ai.sessions.Session
 import me.wanttobee.openblock.ai.sessions.AiModel
 import me.wanttobee.openblock.ai.sessions.base.SessionMessage
@@ -120,9 +121,14 @@ object OpenAiProvider : AiProvider {
 	override fun generate(
 		model: AiModel,
 		session: Session,
-		onActionChange: (String) -> Unit,
+		generationId: Long,
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit,
 		onMessageAdded: (SessionMessage) -> Unit,
 	): Result<Boolean> {
+		if (session.isGenerationInterrupted(generationId)) {
+			return Result.success(false)
+		}
+
 		val result = withClient { client ->
 			val enabledTools = enabledTools(session)
 			if (enabledTools.isEmpty()) {
@@ -134,14 +140,23 @@ object OpenAiProvider : AiProvider {
 				applyReasoning(model, params)
 				val response = client.responses().create(params.build())
 				val usage = openAiUsage(response).getOrNull()
-				session.recordProviderCall(name, model.apiName, usage, "assistant")
-				GenerationOutcome(extractText(response), usage)
+				if (session.isGenerationInterrupted(generationId)) {
+					session.recordProviderCall(name, model.apiName, usage, "interrupted")
+					GenerationOutcome(interrupted = true, usage = usage)
+				} else {
+					session.recordProviderCall(name, model.apiName, usage, "assistant")
+					GenerationOutcome(extractText(response), usage = usage)
+				}
 			} else {
-				generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
+				generateWithTools(client, model, session, generationId, enabledTools, onActionChange, onMessageAdded)
 			}
 		}.mapCatching { outcome ->
-			session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName)
-			true
+			if (outcome.interrupted) {
+				false
+			} else {
+				session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName)
+				true
+			}
 		}
 
 		result.onFailure { exception ->
@@ -154,17 +169,22 @@ object OpenAiProvider : AiProvider {
 		client: com.openai.client.OpenAIClient,
 		model: AiModel,
 		session: Session,
+		generationId: Long,
 		enabledTools: List<AiTool>,
-		onActionChange: (String) -> Unit,
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit,
 		onMessageAdded: (SessionMessage) -> Unit,
 	): GenerationOutcome {
 		var previousResponseId: String? = null
 		var toolInputs: List<ResponseInputItem> = toInputItems(session)
 
 		repeat(AiProvider.MAX_TOOL_CALLS) {
+			if (session.isGenerationInterrupted(generationId)) {
+				return GenerationOutcome(interrupted = true)
+			}
+
 			val params = ResponseCreateParams.builder()
 				.model(model.apiName)
-				.parallelToolCalls(false)
+				.parallelToolCalls(true)
 
 			session.effectiveSystemPrompt().getOrNull()?.let(params::instructions)
 			applyReasoning(model, params)
@@ -185,28 +205,46 @@ object OpenAiProvider : AiProvider {
 				.map(ResponseOutputItem::asFunctionCall)
 
 			if (toolCalls.isEmpty()) {
-				onActionChange("generating")
+				if (session.isGenerationInterrupted(generationId)) {
+					session.recordProviderCall(name, model.apiName, usage, "interrupted")
+					return GenerationOutcome(interrupted = true, usage = usage)
+				}
+				onActionChange("generating", AiActionBarManager.IndicatorState.PROVIDER_PROGRESS)
 				session.recordProviderCall(name, model.apiName, usage, "assistant")
-				return GenerationOutcome(extractText(response), usage)
+				return GenerationOutcome(extractText(response), usage = usage)
 			}
 			session.recordProviderCall(name, model.apiName, usage, "tool_calls")
+			if (session.isGenerationInterrupted(generationId)) {
+				return GenerationOutcome(interrupted = true, usage = usage)
+			}
 
-			toolInputs = toolCalls.map { toolCall ->
-				onActionChange("using ${toolCall.name()}")
-				val playerId = session.boundPlayerId
-				val arguments = parseJsonArguments(toolCall.arguments())
-				val invocation = ToolManager.invoke(
-					boundedPlayerId = playerId,
+			onActionChange(toolBatchActionLabel(toolCalls.map { it.name() }), AiActionBarManager.IndicatorState.TOOL_PROCESSING)
+			val toolRequests = toolCalls.map { toolCall ->
+				ToolManager.ToolCallRequest(
 					name = toolCall.name(),
-					arguments = arguments,
+					arguments = parseJsonArguments(toolCall.arguments()),
 				)
-				val result = invocation.fold(
+			}
+			val toolOutcomes = ToolManager.invokeAllParallel(session.boundPlayerId, toolRequests) { started ->
+				started.conversationMessage?.let { content ->
+					session.addToolMessage(content)
+					session.lastMessage().getOrNull()?.let(onMessageAdded)
+				}
+			}
+			if (session.isGenerationInterrupted(generationId)) {
+				return GenerationOutcome(interrupted = true)
+			}
+			val batchIndicator = if (toolOutcomes.any(::hasToolError)) {
+				AiActionBarManager.IndicatorState.TOOL_ERROR
+			} else {
+				AiActionBarManager.IndicatorState.TOOL_SUCCESS
+			}
+			onActionChange(toolBatchActionLabel(toolCalls.map { it.name() }), batchIndicator)
+
+			toolInputs = toolCalls.zip(toolOutcomes).map { (toolCall, outcome) ->
+				val result = outcome.invocation.fold(
 					onSuccess = { toolInvocation ->
-						toolInvocation.conversationMessage?.let { content ->
-							session.addToolMessage(content)
-							session.lastMessage().getOrNull()?.let(onMessageAdded)
-						}
-						session.recordToolInvocation(toolCall.name(), arguments, toolInvocation.execution, toolInvocation.conversationMessage)
+						session.recordToolInvocation(toolCall.name(), outcome.arguments, toolInvocation.execution, toolInvocation.conversationMessage)
 						toolInvocation.execution
 					},
 					onFailure = { error ->
@@ -214,7 +252,7 @@ object OpenAiProvider : AiProvider {
 							payload = mapOf("message" to (error.message ?: "Tool invocation failed: ${toolCall.name()}")),
 							isError = true,
 						)
-						session.recordToolInvocation(toolCall.name(), arguments, failedResult, null)
+						session.recordToolInvocation(toolCall.name(), outcome.arguments, failedResult, null)
 						failedResult
 					},
 				)
@@ -235,7 +273,7 @@ object OpenAiProvider : AiProvider {
 		client: com.openai.client.OpenAIClient,
 		params: ResponseCreateParams,
 		model: AiModel,
-		onActionChange: (String) -> Unit,
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit,
 	): String {
 		val response = client.responses().createStreaming(params)
 		val text = StringBuilder()
@@ -246,7 +284,7 @@ object OpenAiProvider : AiProvider {
 				when {
 					event.isOutputTextDelta() -> {
 						if (!generating) {
-							onActionChange("generating")
+							onActionChange("generating", AiActionBarManager.IndicatorState.PROVIDER_PROGRESS)
 							generating = true
 						}
 						text.append(event.asOutputTextDelta().delta())
@@ -364,7 +402,8 @@ object OpenAiProvider : AiProvider {
 	}
 
 	private data class GenerationOutcome(
-		val text: String,
+		val text: String = "",
+		val interrupted: Boolean = false,
 		val usage: SessionTokenUsage? = null,
 	)
 

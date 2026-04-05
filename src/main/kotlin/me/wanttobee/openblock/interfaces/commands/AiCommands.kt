@@ -57,6 +57,11 @@ object AiCommands {
 	}
 
 	private fun sendToCurrentTarget(server: MinecraftServer, playerId: UUID, message: String) {
+		if (AiService.isInterruptPrompt(message)) {
+			interruptCurrentResponse(server, playerId, message)
+			return
+		}
+
 		val target = AiService.currentTarget(playerId).getOrElse {
 			server.execute {
 				val player = server.playerList.getPlayer(playerId) ?: return@execute
@@ -82,9 +87,9 @@ object AiCommands {
 			val result = AiService.sendMessage(
 				playerId = playerId,
 				message = message,
-				onActionChange = { action ->
+				onActionChange = { action, indicatorState ->
 					server.execute {
-						AiActionBarManager.updateAction(server, playerId, action)
+						AiActionBarManager.updateAction(server, playerId, action, indicatorState)
 					}
 				},
 				onMessageAdded = { sessionMessage ->
@@ -103,6 +108,36 @@ object AiCommands {
 					player.sendSystemMessage(formatSessionMessage(currentResult.first, sessionMessage))
 				}
 			}
+		}
+	}
+
+	private fun interruptCurrentResponse(server: MinecraftServer, playerId: UUID, message: String) {
+		val result = AiService.interruptCurrentGeneration(playerId, message)
+
+		server.execute {
+			val player = server.playerList.getPlayer(playerId) ?: return@execute
+			player.sendSystemMessage(Component.literal(MESSAGE_DIVIDER).withStyle(ChatFormatting.DARK_GRAY))
+			player.sendSystemMessage(
+				Component.literal("you: ").withStyle(ChatFormatting.GRAY)
+					.append(Component.literal(message).withStyle(ChatFormatting.WHITE))
+			)
+			AiActionBarManager.stop(server, playerId)
+
+			result
+				.onSuccess { interrupted ->
+					val response = if (interrupted) {
+						"AI interrupted. Any tool calls already started may still finish, but no further response will be generated."
+					} else {
+						"No active AI response to interrupt."
+					}
+					player.sendSystemMessage(Component.literal(response).withStyle(ChatFormatting.YELLOW))
+				}
+				.onFailure { error ->
+					player.sendSystemMessage(
+						Component.literal(error.message ?: "Unable to interrupt the AI response.")
+							.withStyle(ChatFormatting.RED)
+					)
+				}
 		}
 	}
 

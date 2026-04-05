@@ -47,7 +47,14 @@ object SandboxCommands {
 				)
 				.then(buildRendererBranch())
 				.then(buildExclusionBranch())
-				.then(buildInteractionBranch())
+				.then(buildTargetBranch())
+				.then(
+					MinecraftCommands.literal("floor")
+						.executes { context ->
+							placeSandboxFloor(context.source)
+							1
+						}
+				)
 				.then(
 					MinecraftCommands.literal("clear")
 						.executes { context ->
@@ -119,7 +126,7 @@ object SandboxCommands {
 				}
 		)
 
-	private fun buildInteractionBranch() = MinecraftCommands.literal("interaction")
+	private fun buildTargetBranch() = MinecraftCommands.literal("target")
 		.then(
 			MinecraftCommands.literal("add")
 				.then(
@@ -128,7 +135,7 @@ object SandboxCommands {
 							MinecraftCommands.argument("position", BlockPosArgument.blockPos())
 								.executes { context ->
 									val playerId = Commands.requirePlayerId(context.source) ?: return@executes 0
-									addSandboxInteraction(
+									addSandboxTarget(
 										context.source,
 										playerId,
 										StringArgumentType.getString(context, "name"),
@@ -143,9 +150,9 @@ object SandboxCommands {
 			MinecraftCommands.literal("remove")
 				.then(
 					MinecraftCommands.argument("name", StringArgumentType.word())
-						.suggests(::suggestSandboxInteractionNames)
+						.suggests(::suggestSandboxTargetNames)
 						.executes { context ->
-							removeSandboxInteraction(
+							removeSandboxTarget(
 								context.source,
 								StringArgumentType.getString(context, "name"),
 							)
@@ -156,7 +163,7 @@ object SandboxCommands {
 		.then(
 			MinecraftCommands.literal("clear")
 				.executes { context ->
-					clearSandboxInteractions(context.source)
+					clearSandboxTargets(context.source)
 					1
 				}
 		)
@@ -189,8 +196,8 @@ object SandboxCommands {
 		)
 		source.sendSuccess(
 			{
-				Component.literal("Interactions: ").withStyle(ChatFormatting.YELLOW)
-					.append(Component.literal(sandbox.interactionDescription()).withStyle(ChatFormatting.WHITE))
+				Component.literal("Targets: ").withStyle(ChatFormatting.YELLOW)
+					.append(Component.literal(sandbox.targetDescription()).withStyle(ChatFormatting.WHITE))
 			},
 			false,
 		)
@@ -272,6 +279,27 @@ object SandboxCommands {
 			}
 	}
 
+	private fun placeSandboxFloor(source: CommandSourceStack) {
+		val playerId = Commands.requirePlayerId(source) ?: return
+		AiService.placeSandboxFloor(playerId, source.level)
+			.onSuccess { summary ->
+				source.sendSuccess(
+					{
+						Component.literal("Sandbox floor placed at y=${summary.y}: ").withStyle(ChatFormatting.YELLOW)
+							.append(
+								Component.literal(
+									"${summary.placedIronBlocks} iron blocks, ${summary.placedConcreteBlocks} white concrete blocks"
+								).withStyle(ChatFormatting.WHITE)
+							)
+					},
+					false,
+				)
+			}
+			.onFailure { error ->
+				source.sendFailure(Component.literal(error.message ?: "Unable to place sandbox floor.").withStyle(ChatFormatting.RED))
+			}
+	}
+
 	private fun addSandboxExclusion(source: CommandSourceStack, playerId: UUID, name: String, position: BlockPos) {
 		AiService.addSandboxExclusion(playerId, source.level.dimension(), name, position)
 			.onSuccess { sandbox ->
@@ -317,48 +345,48 @@ object SandboxCommands {
 			}
 	}
 
-	private fun addSandboxInteraction(source: CommandSourceStack, playerId: UUID, name: String, position: BlockPos) {
-		AiService.addSandboxInteraction(playerId, source.level.dimension(), name, position)
+	private fun addSandboxTarget(source: CommandSourceStack, playerId: UUID, name: String, position: BlockPos) {
+		AiService.addSandboxTarget(playerId, source.level.dimension(), name, position)
 			.onSuccess { sandbox ->
 				source.sendSuccess(
 					{
-						Component.literal("Sandbox interaction added: ").withStyle(ChatFormatting.YELLOW)
+						Component.literal("Sandbox target added: ").withStyle(ChatFormatting.YELLOW)
 							.append(Component.literal("$name=[${position.x}, ${position.y}, ${position.z}]").withStyle(ChatFormatting.WHITE))
-							.append(Component.literal(" / total ${sandbox.interactions.size}").withStyle(ChatFormatting.DARK_GRAY))
+							.append(Component.literal(" / total ${sandbox.targets.size}").withStyle(ChatFormatting.DARK_GRAY))
 					},
 					false,
 				)
 			}
 			.onFailure { error ->
-				source.sendFailure(Component.literal(error.message ?: "Unable to add sandbox interaction.").withStyle(ChatFormatting.RED))
+				source.sendFailure(Component.literal(error.message ?: "Unable to add sandbox target.").withStyle(ChatFormatting.RED))
 			}
 	}
 
-	private fun removeSandboxInteraction(source: CommandSourceStack, name: String) {
+	private fun removeSandboxTarget(source: CommandSourceStack, name: String) {
 		val playerId = Commands.requirePlayerId(source) ?: return
-		AiService.removeSandboxInteraction(playerId, name)
+		AiService.removeSandboxTarget(playerId, name)
 			.onSuccess {
 				source.sendSuccess(
-					{ Component.literal("Sandbox interaction removed: $name").withStyle(ChatFormatting.YELLOW) },
+					{ Component.literal("Sandbox target removed: $name").withStyle(ChatFormatting.YELLOW) },
 					false,
 				)
 			}
 			.onFailure { error ->
-				source.sendFailure(Component.literal(error.message ?: "Unable to remove sandbox interaction.").withStyle(ChatFormatting.RED))
+				source.sendFailure(Component.literal(error.message ?: "Unable to remove sandbox target.").withStyle(ChatFormatting.RED))
 			}
 	}
 
-	private fun clearSandboxInteractions(source: CommandSourceStack) {
+	private fun clearSandboxTargets(source: CommandSourceStack) {
 		val playerId = Commands.requirePlayerId(source) ?: return
-		AiService.clearSandboxInteractions(playerId)
+		AiService.clearSandboxTargets(playerId)
 			.onSuccess {
 				source.sendSuccess(
-					{ Component.literal("Sandbox interactions cleared.").withStyle(ChatFormatting.YELLOW) },
+					{ Component.literal("Sandbox targets cleared.").withStyle(ChatFormatting.YELLOW) },
 					false,
 				)
 			}
 			.onFailure { error ->
-				source.sendFailure(Component.literal(error.message ?: "Unable to clear sandbox interactions.").withStyle(ChatFormatting.RED))
+				source.sendFailure(Component.literal(error.message ?: "Unable to clear sandbox targets.").withStyle(ChatFormatting.RED))
 			}
 	}
 
@@ -373,13 +401,13 @@ object SandboxCommands {
 		)
 	}
 
-	private fun suggestSandboxInteractionNames(
+	private fun suggestSandboxTargetNames(
 		context: CommandContext<CommandSourceStack>,
 		builder: SuggestionsBuilder,
 	): CompletableFuture<Suggestions> {
 		val playerId = context.source.player?.uuid ?: return builder.buildFuture()
 		return SharedSuggestionProvider.suggest(
-			AiService.sandboxInteractionNames(playerId).getOrElse { emptyList() },
+			AiService.sandboxTargetNames(playerId).getOrElse { emptyList() },
 			builder,
 		)
 	}

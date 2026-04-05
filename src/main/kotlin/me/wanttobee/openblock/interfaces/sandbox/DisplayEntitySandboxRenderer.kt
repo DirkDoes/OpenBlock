@@ -76,20 +76,20 @@ object DisplayEntitySandboxRenderer {
 		val level = server.getLevel(sandbox.dimension) ?: return
 		val renderedEntities = buildList {
 			addAll(spawnRegionEdges(level, sandbox.boundary, WHITE_BLOCK_STATE))
-			val interactionPositions = sandbox.interactions.values.map(BlockPos::immutable).toSet()
+			val targetPositions = sandbox.targets.values.map(BlockPos::immutable).toSet()
 			val exclusionPositions = sandbox.exclusions.values.map(BlockPos::immutable).toSet()
 			for (position in exclusionPositions) {
 				val region = SandboxRegion(
 					firstCorner = position.immutable(),
 					secondCorner = position.immutable(),
 				)
-				if (position in interactionPositions) {
+				if (position in targetPositions) {
 					addAll(spawnOverlapRegionEdges(level, region))
 				} else {
 					addAll(spawnRegionEdges(level, region, RED_BLOCK_STATE))
 				}
 			}
-			for (position in interactionPositions - exclusionPositions) {
+			for (position in targetPositions - exclusionPositions) {
 				addAll(
 					spawnRegionEdges(
 						level,

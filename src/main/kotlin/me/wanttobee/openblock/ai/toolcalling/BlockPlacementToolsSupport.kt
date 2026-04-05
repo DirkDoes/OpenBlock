@@ -9,6 +9,7 @@ import me.wanttobee.openblock.OpenBlock
 import me.wanttobee.openblock.ai.AiService
 import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import me.wanttobee.openblock.sandbox.SandboxRegion
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument
 import net.minecraft.core.BlockPos
@@ -25,10 +26,14 @@ import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.GameType
+import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.Vec3
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.round
 import kotlin.streams.toList
@@ -40,6 +45,11 @@ object BlockPlacementToolsSupport {
 	private const val INTERACTION_PLAYER_NAME = "[OpenBlock]"
 	private val INTERACTION_FACE: Direction = Direction.SOUTH
 	private val INTERACTION_FACING: Direction = Direction.NORTH
+	private val activeObservations = ConcurrentHashMap<UUID, ActiveObservation>()
+
+	fun bind() {
+		ServerTickEvents.END_SERVER_TICK.register(ServerTickEvents.EndTick(::advanceObservations))
+	}
 
 	fun getBlocks(
 		playerId: UUID?,
@@ -194,6 +204,52 @@ object BlockPlacementToolsSupport {
 		)
 	}
 
+	fun observeState(
+		playerId: UUID?,
+		position: String,
+		tickCount: String,
+	): AiToolExecution {
+		val source = toolContext(playerId).getOrElse { return failedExecution(it.message ?: "Unknown tool context error.") }
+		val targetPosition = parseBlockPos(source, position).getOrElse { return failedExecution("Invalid position: $position") }
+		if (!isAllowedPosition(playerId, source, targetPosition)) {
+			return failedExecution("Requested position is outside the active sandbox.")
+		}
+
+		val requestedTicks = parseObservationTicks(tickCount)
+			.getOrElse { return failedExecution(it.message ?: "Invalid tick count.") }
+		val level = source.level
+		if (!level.isLoaded(targetPosition)) {
+			return failedExecution("Requested position is not currently loaded.")
+		}
+
+		val observation = ActiveObservation(
+			id = UUID.randomUUID(),
+			dimension = level.dimension(),
+			position = targetPosition.immutable(),
+			totalTicks = requestedTicks,
+			future = CompletableFuture(),
+		)
+		source.server.execute {
+			startObservation(source.server, observation)
+		}
+
+		val timeoutMillis = 5_000L + (requestedTicks.toLong() * 200L)
+		val snapshots = runCatching {
+			observation.future.get(timeoutMillis, TimeUnit.MILLISECONDS)
+		}.getOrElse { error ->
+			activeObservations.remove(observation.id)
+			return failedExecution(error.message ?: "State observation timed out.")
+		}
+
+		return AiToolExecution(
+			payload = linkedMapOf(
+				"position" to formatPos(targetPosition),
+				"observed_ticks" to requestedTicks,
+				"states" to describeObservedStates(snapshots),
+			)
+		)
+	}
+
 	fun placeBlock(
 		playerId: UUID?,
 		position: String,
@@ -296,6 +352,158 @@ object BlockPlacementToolsSupport {
 				},
 			),
 		)
+	}
+
+	private fun parseObservationTicks(rawTickCount: String): Result<Int> {
+		val trimmed = rawTickCount.trim()
+		if (trimmed.isBlank()) {
+			return Result.failure(IllegalArgumentException("Tick count is required."))
+		}
+
+		val value = trimmed.toIntOrNull()
+			?: return Result.failure(IllegalArgumentException("Tick count must be a whole number between 0 and 1200."))
+		if (value !in 0..1200) {
+			return Result.failure(IllegalArgumentException("Tick count must be between 0 and 1200."))
+		}
+		return Result.success(value)
+	}
+
+	private fun startObservation(server: net.minecraft.server.MinecraftServer, observation: ActiveObservation) {
+		val initialState = sampleObservedState(server, observation.dimension, observation.position)
+			.getOrElse {
+				observation.future.completeExceptionally(it)
+				return
+			}
+		observation.snapshots += ObservedSnapshot(
+			tick = 0,
+			state = initialState,
+		)
+		observation.previousState = initialState
+
+		if (observation.totalTicks == 0) {
+			observation.future.complete(observation.snapshots.toList())
+			return
+		}
+
+		activeObservations[observation.id] = observation
+	}
+
+	private fun advanceObservations(server: net.minecraft.server.MinecraftServer) {
+		for (observation in activeObservations.values.toList()) {
+			val nextTick = observation.elapsedTicks + 1
+			val stateResult = sampleObservedState(server, observation.dimension, observation.position)
+			if (stateResult.isFailure) {
+				val error = stateResult.exceptionOrNull() ?: IllegalStateException("Unknown observation error.")
+				activeObservations.remove(observation.id)
+				observation.future.completeExceptionally(error)
+				continue
+			}
+			val state = stateResult.getOrThrow()
+			if (observation.previousState != state) {
+				observation.snapshots += ObservedSnapshot(
+					tick = nextTick,
+					state = state,
+				)
+				observation.previousState = state
+			}
+			observation.elapsedTicks = nextTick
+			if (observation.elapsedTicks >= observation.totalTicks) {
+				activeObservations.remove(observation.id)
+				observation.future.complete(observation.snapshots.toList())
+			}
+		}
+	}
+
+	private fun sampleObservedState(
+		server: net.minecraft.server.MinecraftServer,
+		dimension: net.minecraft.resources.ResourceKey<Level>,
+		position: BlockPos,
+	): Result<ObservedBlockState> {
+		val level = server.getLevel(dimension)
+			?: return Result.failure(IllegalStateException("Observation dimension is no longer available."))
+		if (!level.isLoaded(position)) {
+			return Result.success(
+				ObservedBlockState(
+					blockId = "unloaded",
+					properties = emptyMap(),
+				)
+			)
+		}
+
+		val blockState = level.getBlockState(position)
+		return Result.success(
+			ObservedBlockState(
+				blockId = BuiltInRegistries.BLOCK.getKey(blockState.block).toString(),
+				properties = blockProperties(blockState),
+			)
+		)
+	}
+
+	private fun describeObservedStates(snapshots: List<ObservedSnapshot>): List<Map<String, Any>> {
+		if (snapshots.isEmpty()) {
+			return emptyList()
+		}
+
+		val segments = mutableListOf<List<ObservedSnapshot>>()
+		var currentSegment = mutableListOf(snapshots.first())
+		for (snapshot in snapshots.drop(1)) {
+			if (snapshot.state.blockId == currentSegment.last().state.blockId) {
+				currentSegment += snapshot
+			} else {
+				segments += currentSegment
+				currentSegment = mutableListOf(snapshot)
+			}
+		}
+		segments += currentSegment
+
+		return buildList {
+			for (segment in segments) {
+				val relevantKeys = relevantPropertyKeys(segment)
+				for ((index, snapshot) in segment.withIndex()) {
+					val entry = linkedMapOf<String, Any>(
+						"tick" to snapshot.tick,
+					)
+					if (index == 0) {
+						entry["block"] = snapshot.state.blockId
+						if (relevantKeys.isNotEmpty()) {
+							entry["properties"] = relevantKeys.associateWith { key ->
+								snapshot.state.properties[key].orEmpty()
+							}
+						}
+					} else {
+						val previousState = segment[index - 1].state
+						val changedProperties = linkedMapOf<String, String>()
+						for (key in relevantKeys) {
+							val previousValue = previousState.properties[key]
+							val currentValue = snapshot.state.properties[key]
+							if (previousValue != currentValue) {
+								changedProperties[key] = currentValue.orEmpty()
+							}
+						}
+						if (changedProperties.isNotEmpty()) {
+							entry["properties"] = changedProperties
+						}
+					}
+					add(entry)
+				}
+			}
+		}
+	}
+
+	private fun relevantPropertyKeys(segment: List<ObservedSnapshot>): List<String> {
+		if (segment.size <= 1) {
+			return emptyList()
+		}
+
+		val relevantKeys = linkedSetOf<String>()
+		for ((previous, current) in segment.zipWithNext()) {
+			for (key in previous.state.properties.keys + current.state.properties.keys) {
+				if (previous.state.properties[key] != current.state.properties[key]) {
+					relevantKeys += key
+				}
+			}
+		}
+		return relevantKeys.sorted()
 	}
 
 	private fun toolContext(playerId: UUID?): Result<CommandSourceStack> {
@@ -740,4 +948,25 @@ object BlockPlacementToolsSupport {
 			return token ?: kotlin.error("Missing palette token for $blockId")
 		}
 	}
+
+	private data class ActiveObservation(
+		val id: UUID,
+		val dimension: net.minecraft.resources.ResourceKey<Level>,
+		val position: BlockPos,
+		val totalTicks: Int,
+		val future: CompletableFuture<List<ObservedSnapshot>>,
+		val snapshots: MutableList<ObservedSnapshot> = mutableListOf(),
+		var previousState: ObservedBlockState? = null,
+		var elapsedTicks: Int = 0,
+	)
+
+	private data class ObservedSnapshot(
+		val tick: Int,
+		val state: ObservedBlockState,
+	)
+
+	private data class ObservedBlockState(
+		val blockId: String,
+		val properties: Map<String, String>,
+	)
 }

@@ -15,6 +15,13 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.cos
 
 object AiActionBarManager {
+	enum class IndicatorState {
+		PROVIDER_PROGRESS,
+		TOOL_PROCESSING,
+		TOOL_SUCCESS,
+		TOOL_ERROR,
+	}
+
 	private val scheduler: ScheduledExecutorService = Executors.newScheduledThreadPool(1) { runnable ->
 		Thread(runnable, "openblock-actionbar").apply {
 			isDaemon = true
@@ -30,6 +37,7 @@ object AiActionBarManager {
 			action = action,
 			colorA = target.provider.progressColorA,
 			colorB = target.provider.progressColorB,
+			indicatorState = IndicatorState.PROVIDER_PROGRESS,
 			startedAtMillis = System.currentTimeMillis(),
 		)
 
@@ -43,9 +51,18 @@ object AiActionBarManager {
 		tasks[playerId] = ActionBarTask(state, future)
 	}
 
-	fun updateAction(server: MinecraftServer, playerId: UUID, action: String) {
+	fun updateAction(
+		server: MinecraftServer,
+		playerId: UUID,
+		action: String,
+		indicatorState: IndicatorState = IndicatorState.PROVIDER_PROGRESS,
+	) {
 		val existing = tasks[playerId] ?: return
-		val updated = existing.state.copy(action = action)
+		val updated = existing.state.copy(
+			action = action,
+			indicatorState = indicatorState,
+			startedAtMillis = System.currentTimeMillis(),
+		)
 		existing.future.cancel(false)
 		sendFrame(server, playerId, updated)
 		val future = scheduler.scheduleAtFixedRate(
@@ -74,15 +91,42 @@ object AiActionBarManager {
 	private fun sendFrame(server: MinecraftServer, playerId: UUID, state: ActionBarState) {
 		server.execute {
 			val player = server.playerList.getPlayer(playerId) ?: return@execute
-			val color = interpolateColor(
-				state.colorA,
-				state.colorB,
+			val providerDot = Component.literal("● ")
+				.withStyle(Style.EMPTY.withColor(TextColor.fromRgb(providerColor(state))))
+			val label = if (state.indicatorState == IndicatorState.PROVIDER_PROGRESS) {
+				Component.literal("${state.modelName} - ${state.action}")
+					.withStyle(Style.EMPTY.withColor(0xFFFFFF))
+			} else {
+				Component.literal("${state.modelName} - ").withStyle(Style.EMPTY.withColor(0xFFFFFF))
+					.append(
+						Component.literal("● ")
+							.withStyle(Style.EMPTY.withColor(TextColor.fromRgb(toolIndicatorColor(state))))
+					)
+					.append(Component.literal(state.action).withStyle(Style.EMPTY.withColor(0xFFFFFF)))
+			}
+			val component = providerDot.append(label)
+			player.connection.send(ClientboundSetActionBarTextPacket(component))
+		}
+	}
+
+	private fun providerColor(state: ActionBarState): Int {
+		return interpolateColor(
+			state.colorA,
+			state.colorB,
+			normalizedPhase(state.startedAtMillis),
+		)
+	}
+
+	private fun toolIndicatorColor(state: ActionBarState): Int {
+		return when (state.indicatorState) {
+			IndicatorState.PROVIDER_PROGRESS -> providerColor(state)
+			IndicatorState.TOOL_PROCESSING -> interpolateColor(
+				0xFFFF00,
+				0xFFFFFF,
 				normalizedPhase(state.startedAtMillis),
 			)
-			val component = Component.literal("● ")
-				.withStyle(Style.EMPTY.withColor(TextColor.fromRgb(color)))
-				.append(Component.literal("${state.modelName} - ${state.action}").withStyle(Style.EMPTY.withColor(0xFFFFFF)))
-			player.connection.send(ClientboundSetActionBarTextPacket(component))
+			IndicatorState.TOOL_SUCCESS -> 0x7FFF00
+			IndicatorState.TOOL_ERROR -> 0xFF3B30
 		}
 	}
 
@@ -113,6 +157,7 @@ object AiActionBarManager {
 		val action: String,
 		val colorA: Int,
 		val colorB: Int,
+		val indicatorState: IndicatorState,
 		val startedAtMillis: Long,
 	)
 }

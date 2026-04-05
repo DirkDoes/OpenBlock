@@ -1,5 +1,6 @@
 package me.wanttobee.openblock
 
+import me.wanttobee.openblock.ai.toolcalling.BlockPlacementToolsSupport
 import me.wanttobee.openblock.interfaces.chat.ChatModeManager
 import me.wanttobee.openblock.interfaces.commands.Commands
 import me.wanttobee.openblock.interfaces.menu.openblockmenu.OpenBlockMenu
@@ -21,6 +22,7 @@ object OpenBlock : DedicatedServerModInitializer {
 	}
 
 	override fun onInitializeServer() {
+		BlockPlacementToolsSupport.bind()
 		SandboxManager.bind()
 		ParticleSandboxRenderer.bind()
 		DisplayEntitySandboxRenderer.bind()

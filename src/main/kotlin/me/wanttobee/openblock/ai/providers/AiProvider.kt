@@ -1,5 +1,6 @@
 package me.wanttobee.openblock.ai.providers
 
+import me.wanttobee.openblock.ai.AiActionBarManager
 import me.wanttobee.openblock.ai.sessions.AiModel
 import me.wanttobee.openblock.ai.sessions.Session
 import me.wanttobee.openblock.ai.sessions.base.SessionMessage
@@ -65,6 +66,22 @@ interface AiProvider {
 		return ToolManager.enabledTools(session)
 	}
 
+	fun toolBatchActionLabel(toolNames: List<String>): String {
+		return when (toolNames.size) {
+			0 -> "using tools"
+			1 -> "using ${toolNames.first()}"
+			2 -> "using ${toolNames[0]} + ${toolNames[1]}"
+			else -> "using ${toolNames.first()} + ${toolNames.size - 1} more"
+		}
+	}
+
+	fun hasToolError(outcome: ToolManager.ToolCallOutcome): Boolean {
+		return outcome.invocation.fold(
+			onSuccess = { invocation -> invocation.execution.isError },
+			onFailure = { true },
+		)
+	}
+
 	fun missingToolResult(toolName: String): AiToolExecution {
 		return AiToolExecution(
 			payload = mapOf("message" to "Unknown tool: $toolName"),
@@ -79,7 +96,8 @@ interface AiProvider {
 	fun generate(
 		model: AiModel,
 		session: Session,
-		onActionChange: (String) -> Unit = {},
+		generationId: Long,
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit = { _, _ -> },
 		onMessageAdded: (SessionMessage) -> Unit = {},
 	): Result<Boolean>
 

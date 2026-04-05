@@ -11,14 +11,14 @@ import me.wanttobee.openblock.ai.toolcalling.base.ToolArguments
 import net.minecraft.world.item.Items
 import java.util.UUID
 
-object SandboxInteractionTool : AiTool {
+object SandboxTargetTool : AiTool {
 	private val actionParameter = AiToolParameter(
 		name = "action",
 		description = "Either add or remove.",
 	)
 	private val nameParameter = AiToolParameter(
 		name = "name",
-		description = "Unique sandbox interaction name.",
+		description = "Unique sandbox target name.",
 	)
 	private val positionParameter = AiToolParameter(
 		name = "position",
@@ -27,9 +27,9 @@ object SandboxInteractionTool : AiTool {
 		manualInput = AiToolParameter.ManualInput.BLOCK_POS,
 	)
 
-	override val name = "sandbox_interaction"
+	override val name = "sandbox_target"
 	override val description =
-		"Adds or removes named sandbox interaction points inside the current sandbox. These points are shared with the session context and are intended for future automated testing flows."
+		"Adds or removes named sandbox target points inside the current sandbox. These points are shared with the session context and can be used for interaction or observation flows."
 	override val enabledByDefault = false
 	override val parameters = listOf(actionParameter, nameParameter, positionParameter)
 	override val menuIcon = Items.BELL
@@ -44,7 +44,7 @@ object SandboxInteractionTool : AiTool {
 			1 -> {
 				val action = arguments[actionParameter.name]?.trim()?.lowercase()
 				if (action == "remove" && playerId != null) {
-					AiService.sandboxInteractionNames(playerId).map { names ->
+					AiService.sandboxTargetNames(playerId).map { names ->
 						names.map(::AiToolSuggestion)
 					}
 				} else {
@@ -61,9 +61,9 @@ object SandboxInteractionTool : AiTool {
 		val name = arguments.get<String>(nameParameter.name).getOrElse { return Result.failure(it) }
 		val position = arguments.getOrNull<String>(positionParameter.name).getOrElse { return Result.failure(it) }
 		return if (action.equals("add", ignoreCase = true) && position != null) {
-			Result.success("adding sandbox interaction $name at $position")
+			Result.success("adding sandbox target $name at $position")
 		} else {
-			Result.success("removing sandbox interaction $name")
+			Result.success("removing sandbox target $name")
 		}
 	}
 
@@ -72,7 +72,7 @@ object SandboxInteractionTool : AiTool {
 		val name = arguments.get<String>(nameParameter.name).getOrElse { return Result.failure(it) }
 		val position = arguments.getOrNull<String>(positionParameter.name).getOrElse { return Result.failure(it) }
 		return Result.success(
-			SandboxToolsSupport.manageInteraction(
+			SandboxToolsSupport.manageTarget(
 				playerId = boundedPlayerId,
 				action = action,
 				name = name,

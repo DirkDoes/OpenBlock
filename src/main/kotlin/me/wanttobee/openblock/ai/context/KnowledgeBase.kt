@@ -16,10 +16,14 @@ object KnowledgeBase {
 
 	const val REDSTONE_DIRECTION_DETAILS =
 		"Redstone Block direction details\n" +
-			"- Repeaters & Comparators: when a repeater or comparator is facing north, their input is on the north side, and its output is on the south side. (so it feels flipped)\n" +
-			"- Observer: the side that an observer is facing is the side of its face. That is the side that it is observing. The opposite side is where the Redstone output will be.\n" +
+			"- Repeaters & Comparators: repeaters and comparators directions are always flipped. If you want to place it facing the south direction (output going to the south), than you should actually place it facing north. (same goes for reading the block)\n" +
+			"- Observers: For Observers the `facing` property is the **direction of the face(input)**. If it faces North, the redstone output comes out the South side.\n" +
 			"- Trapdoors & Doors: When they open, they always open on a side of a block, where the hinge is. The hinge is always on the opposite side of where it is facing (so in that regard it is from the hinge, facing to that direction). \n" +
-			"- levers: when placed on a wall, its handle is pointing down in its \"on\" state and pointing up in its \"off\" state.\n" +
-			"  when a lever is on the floor or ceiling, its handle in \"on\" state is pointing towards its placement direction, and in its \"off\" state its pointing away from the placement direction.\n" +
-			"- redstone dust: redstone dust placed down is called minecraft:redstone_wire. Make sure when placing that you are also place it with the right links and facing directions"
+			"- wall facing blocks: when placing down wall facing blocks, use the facing to specify the side of the block its attached to\n" +
+			"- redstone dust: redstone dust placed down is called minecraft:redstone_wire. Make sure when placing that you are also place it with the right links and facing directions.\n" +
+			"Tool timing for redstone\n" +
+			"- When mixing block reads or writes with interact or watch in one batch, prefer this order: place/fill/get first, then interact/watch.\n" +
+			"- When issuing multiple placement calls, order them by dependency: place supporting blocks first and dependent blocks later. For example, place the block under redstone wire before placing the redstone_wire itself.\n" +
+			"- after Interaction, Because redstone interactions can propagate a few ticks later, do not assume that an immediate read in the same batch will always see the final result. Instead, use the watch tool with a small tick delay to see an interaction over the tick count. This tool is meant to validate or see redstone interactions\n" +
+			"- You can call multiple watch tools in the same batch if you need to monitor several blocks at once. They will all start watching at the same time"
 }

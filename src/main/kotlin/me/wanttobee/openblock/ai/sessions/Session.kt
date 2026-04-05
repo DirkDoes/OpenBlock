@@ -1,5 +1,6 @@
 package me.wanttobee.openblock.ai.sessions
 
+import me.wanttobee.openblock.ai.context.KnowledgeBase
 import me.wanttobee.openblock.ai.context.PlayerContextCapturer
 import me.wanttobee.openblock.ai.sessions.base.SessionMessage
 import me.wanttobee.openblock.ai.sessions.base.SessionSummary
@@ -24,6 +25,9 @@ class Session(
 	private var lastSandboxUpdateVersion: Long = 0L
 	private val enabledToolNames = initialEnabledToolNames.toMutableSet()
 	private val allowedCommandNames = initialAllowedCommandNames.toMutableSet()
+	private var nextGenerationId: Long = 1L
+	private val activeGenerationIds = linkedSetOf<Long>()
+	private val interruptedGenerationIds = linkedSetOf<Long>()
 
 	fun messages(): List<SessionMessage> = messages.toList()
 	fun sandbox(): Sandbox? = sandbox
@@ -58,8 +62,15 @@ class Session(
 	}
 	fun effectiveSystemPrompt(): Result<String> {
 		val basePrompt = systemPrompt?.trim().orEmpty()
+		val builtInPrompt = listOf(
+			KnowledgeBase.OPENBLOCK_IDENTITY,
+			KnowledgeBase.REDSTONE_DIRECTION_DETAILS,
+		).joinToString("\n\n")
 		if (boundPlayerId == null) {
-			return basePrompt.takeIf { it.isNotBlank() }?.let(Result.Companion::success)
+			val prompt = listOf(builtInPrompt, basePrompt)
+				.filter { it.isNotBlank() }
+				.joinToString("\n\n")
+			return prompt.takeIf { it.isNotBlank() }?.let(Result.Companion::success)
 				?: Result.failure(NoSuchElementException("Session has no effective system prompt."))
 		}
 
@@ -74,14 +85,14 @@ class Session(
 				"hp(...), xp(...), and hunger(...).\n" +
 				"Treat that prefix as authoritative context about the player speaking to you."
 
-		val prompt = listOf(basePrompt, bindingPrompt)
+		val prompt = listOf(builtInPrompt, basePrompt, bindingPrompt)
 			.filter { it.isNotBlank() }
 			.joinToString("\n\n")
 		return prompt.takeIf { it.isNotBlank() }?.let(Result.Companion::success)
 			?: Result.failure(NoSuchElementException("Session has no effective system prompt."))
 	}
 
-	fun addUserMessage(content: String) {
+	fun addUserMessage(content: String, supplementalHiddenContent: String? = null) {
 		if (!persisted) {
 			persisted = true
 			SessionLogger.logSessionStarted(this)
@@ -97,6 +108,9 @@ class Session(
 				hiddenParts += update.description
 				lastSandboxUpdateVersion = update.version
 			}
+		supplementalHiddenContent
+			?.takeIf(String::isNotBlank)
+			?.let(hiddenParts::add)
 		val hiddenContent = hiddenParts
 			.filter { part -> part.isNotBlank() }
 			.joinToString("\n")
@@ -109,6 +123,30 @@ class Session(
 		messages += message
 		SessionLogger.logMessage(this, message)
 		AiSessionManager.updateSession(this)
+	}
+
+	@Synchronized
+	fun beginGeneration(): Long {
+		val generationId = nextGenerationId++
+		activeGenerationIds += generationId
+		return generationId
+	}
+
+	@Synchronized
+	fun interruptActiveGenerations(): Int {
+		interruptedGenerationIds += activeGenerationIds
+		return activeGenerationIds.size
+	}
+
+	@Synchronized
+	fun isGenerationInterrupted(generationId: Long): Boolean {
+		return generationId in interruptedGenerationIds
+	}
+
+	@Synchronized
+	fun finishGeneration(generationId: Long) {
+		activeGenerationIds -= generationId
+		interruptedGenerationIds -= generationId
 	}
 
 	fun addAssistantMessage(

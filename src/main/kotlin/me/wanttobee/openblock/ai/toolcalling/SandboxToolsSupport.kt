@@ -11,30 +11,30 @@ import net.minecraft.core.BlockPos
 import java.util.UUID
 
 object SandboxToolsSupport {
-	fun manageInteraction(
+	fun manageTarget(
 		playerId: UUID?,
 		action: String,
 		name: String,
 		position: String?,
 	): AiToolExecution {
-		val scopedPlayerId = playerId ?: return failedExecution("Sandbox interaction management requires a bound player.")
+		val scopedPlayerId = playerId ?: return failedExecution("Sandbox target management requires a bound player.")
 		return when (action.trim().lowercase()) {
-			"add" -> addInteraction(scopedPlayerId, name, position)
-			"remove" -> removeInteraction(scopedPlayerId, name)
+			"add" -> addTarget(scopedPlayerId, name, position)
+			"remove" -> removeTarget(scopedPlayerId, name)
 			else -> failedExecution("Invalid action: $action. Use add or remove.")
 		}
 	}
 
-	private fun addInteraction(playerId: UUID, name: String, position: String?): AiToolExecution {
+	private fun addTarget(playerId: UUID, name: String, position: String?): AiToolExecution {
 		val source = toolContext(playerId).getOrElse { return failedExecution(it.message ?: "Unknown tool context error.") }
 		val rawPosition = position?.trim().orEmpty()
 		if (rawPosition.isBlank()) {
-			return failedExecution("Position is required when adding a sandbox interaction.")
+			return failedExecution("Position is required when adding a sandbox target.")
 		}
 
 		val targetPosition = parseBlockPos(source, rawPosition)
 			.getOrElse { return failedExecution("Invalid position: $rawPosition") }
-		return AiService.addSandboxInteraction(playerId, source.level.dimension(), name, targetPosition)
+		return AiService.addSandboxTarget(playerId, source.level.dimension(), name, targetPosition)
 			.fold(
 				onSuccess = { sandbox ->
 					AiToolExecution(
@@ -42,7 +42,7 @@ object SandboxToolsSupport {
 							"action" to "add",
 							"name" to name,
 							"position" to formatPos(targetPosition),
-							"interactions" to sandbox.interactions.map { (entryName, entryPosition) ->
+							"targets" to sandbox.targets.map { (entryName, entryPosition) ->
 								mapOf(
 									"name" to entryName,
 									"position" to formatPos(entryPosition),
@@ -51,19 +51,19 @@ object SandboxToolsSupport {
 						)
 					)
 				},
-				onFailure = { failedExecution(it.message ?: "Unable to add sandbox interaction.") },
+				onFailure = { failedExecution(it.message ?: "Unable to add sandbox target.") },
 			)
 	}
 
-	private fun removeInteraction(playerId: UUID, name: String): AiToolExecution {
-		return AiService.removeSandboxInteraction(playerId, name)
+	private fun removeTarget(playerId: UUID, name: String): AiToolExecution {
+		return AiService.removeSandboxTarget(playerId, name)
 			.fold(
 				onSuccess = { sandbox ->
 					AiToolExecution(
 						payload = linkedMapOf(
 							"action" to "remove",
 							"name" to name,
-							"interactions" to sandbox.interactions.map { (entryName, entryPosition) ->
+							"targets" to sandbox.targets.map { (entryName, entryPosition) ->
 								mapOf(
 									"name" to entryName,
 									"position" to formatPos(entryPosition),
@@ -72,7 +72,7 @@ object SandboxToolsSupport {
 						)
 					)
 				},
-				onFailure = { failedExecution(it.message ?: "Unable to remove sandbox interaction.") },
+				onFailure = { failedExecution(it.message ?: "Unable to remove sandbox target.") },
 			)
 	}
 

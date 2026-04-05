@@ -13,6 +13,10 @@ interface AiTool {
 		get() = Items.BARRIER
 	val hasConfigurationMenu: Boolean
 		get() = false
+	val runsAsync: Boolean
+		get() = false
+	val runsAsyncWhenInvokedManually: Boolean
+		get() = runsAsync
 
 	fun invoke(boundedPlayerId: UUID?, rawArguments: Map<String, String>): Result<AiToolInvocation> {
 		val validatedArguments = ToolArguments.validate(parameters, rawArguments)

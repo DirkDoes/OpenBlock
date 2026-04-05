@@ -67,7 +67,7 @@ object ParticleSandboxRenderer {
 
 		val cachedRegions = buildList {
 			add(CachedRegion(sandbox.boundary, WHITE_OUTLINE))
-			val interactionPositions = sandbox.interactions.values.map(BlockPos::immutable).toSet()
+			val targetPositions = sandbox.targets.values.map(BlockPos::immutable).toSet()
 			val exclusionPositions = sandbox.exclusions.values.map(BlockPos::immutable).toSet()
 			for (position in exclusionPositions) {
 				val region = SandboxRegion(
@@ -75,11 +75,11 @@ object ParticleSandboxRenderer {
 					secondCorner = position.immutable(),
 				)
 				add(CachedRegion(region, RED_OUTLINE))
-				if (position in interactionPositions) {
+				if (position in targetPositions) {
 					add(CachedRegion(region, YELLOW_OUTLINE))
 				}
 			}
-			for (position in interactionPositions - exclusionPositions) {
+			for (position in targetPositions - exclusionPositions) {
 				add(
 					CachedRegion(
 						SandboxRegion(

@@ -18,9 +18,16 @@ import net.minecraft.commands.arguments.coordinates.BlockPosArgument
 import net.minecraft.core.BlockPos
 import net.minecraft.network.chat.Component
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 object InvokeToolCommands {
 	private val gson = com.google.gson.GsonBuilder().setPrettyPrinting().create()
+	private val executor: ExecutorService = Executors.newCachedThreadPool { runnable ->
+		Thread(runnable, "openblock-invoke-tool").apply {
+			isDaemon = true
+		}
+	}
 
 	fun register(dispatcher: CommandDispatcher<CommandSourceStack>) {
 		val root = MinecraftCommands.literal("ob-invoke-tool")
@@ -93,15 +100,38 @@ object InvokeToolCommands {
 	}
 
 	private fun runManualTool(source: CommandSourceStack, tool: AiTool, arguments: Map<String, String>) {
+		if (tool.runsAsyncWhenInvokedManually) {
+			runManualToolAsync(source, tool, arguments)
+			return
+		}
+
+		sendToolResult(source, tool, AiService.executeTool(source.player?.uuid, tool.name, arguments))
+	}
+
+	private fun runManualToolAsync(source: CommandSourceStack, tool: AiTool, arguments: Map<String, String>) {
+		source.sendSuccess(
+			{ Component.literal("${tool.name}: running...").withStyle(ChatFormatting.GRAY) },
+			false,
+		)
+		val server = source.server
 		val playerId = source.player?.uuid
-		val result = AiService.executeTool(playerId, tool.name, arguments).getOrElse { error ->
+		executor.submit {
+			val result = AiService.executeTool(playerId, tool.name, arguments)
+			server.execute {
+				sendToolResult(source, tool, result)
+			}
+		}
+	}
+
+	private fun sendToolResult(source: CommandSourceStack, tool: AiTool, result: Result<me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution>) {
+		val execution = result.getOrElse { error ->
 			source.sendFailure(Component.literal(error.message ?: "Unknown tool: ${tool.name}").withStyle(ChatFormatting.RED))
 			return
 		}
 
-		val color = if (result.isError) ChatFormatting.RED else ChatFormatting.WHITE
+		val color = if (execution.isError) ChatFormatting.RED else ChatFormatting.WHITE
 		source.sendSuccess({ Component.literal("${tool.name}:").withStyle(ChatFormatting.YELLOW) }, false)
-		for (line in gson.toJson(result.asResponseMap()).lines()) {
+		for (line in gson.toJson(execution.asResponseMap()).lines()) {
 			source.sendSuccess({ Component.literal(line).withStyle(color) }, false)
 		}
 	}

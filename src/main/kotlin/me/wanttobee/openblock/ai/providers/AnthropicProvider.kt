@@ -14,6 +14,7 @@ import com.anthropic.models.messages.ThinkingConfigParam
 import com.anthropic.models.messages.Tool as AnthropicTool
 import com.anthropic.models.messages.ToolChoiceAuto
 import com.anthropic.models.messages.ToolResultBlockParam
+import me.wanttobee.openblock.ai.AiActionBarManager
 import me.wanttobee.openblock.ai.sessions.Session
 import me.wanttobee.openblock.ai.sessions.AiModel
 import me.wanttobee.openblock.ai.sessions.base.SessionMessage
@@ -97,9 +98,14 @@ object AnthropicProvider : AiProvider {
 	override fun generate(
 		model: AiModel,
 		session: Session,
-		onActionChange: (String) -> Unit,
+		generationId: Long,
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit,
 		onMessageAdded: (SessionMessage) -> Unit,
 	): Result<Boolean> {
+		if (session.isGenerationInterrupted(generationId)) {
+			return Result.success(false)
+		}
+
 		val result = withClient { client ->
 			val enabledTools = enabledTools(session)
 			if (enabledTools.isEmpty()) {
@@ -132,14 +138,23 @@ object AnthropicProvider : AiProvider {
 
 				val response = client.messages().create(builder.build())
 				val usage = anthropicUsage(response).getOrNull()
-				session.recordProviderCall(name, model.apiName, usage, "assistant")
-				GenerationOutcome(extractText(response), usage)
+				if (session.isGenerationInterrupted(generationId)) {
+					session.recordProviderCall(name, model.apiName, usage, "interrupted")
+					GenerationOutcome(interrupted = true, usage = usage)
+				} else {
+					session.recordProviderCall(name, model.apiName, usage, "assistant")
+					GenerationOutcome(extractText(response), usage = usage)
+				}
 			} else {
-				generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
+				generateWithTools(client, model, session, generationId, enabledTools, onActionChange, onMessageAdded)
 			}
 		}.mapCatching { outcome ->
-			session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName)
-			true
+			if (outcome.interrupted) {
+				false
+			} else {
+				session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName)
+				true
+			}
 		}
 
 		result.onFailure { exception ->
@@ -152,8 +167,9 @@ object AnthropicProvider : AiProvider {
 		client: com.anthropic.client.AnthropicClient,
 		model: AiModel,
 		session: Session,
+		generationId: Long,
 		enabledTools: List<AiTool>,
-		onActionChange: (String) -> Unit,
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit,
 		onMessageAdded: (SessionMessage) -> Unit,
 	): GenerationOutcome {
 		val conversation = session.messages().mapNotNull { message ->
@@ -172,6 +188,10 @@ object AnthropicProvider : AiProvider {
 		}.toMutableList()
 
 		repeat(AiProvider.MAX_TOOL_CALLS) {
+			if (session.isGenerationInterrupted(generationId)) {
+				return GenerationOutcome(interrupted = true)
+			}
+
 			val builder = MessageCreateParams.builder()
 				.model(model.apiName)
 				.maxTokens(maxTokensFor(model))
@@ -189,29 +209,48 @@ object AnthropicProvider : AiProvider {
 				.map(ContentBlock::asToolUse)
 
 			if (toolUses.isEmpty()) {
-				onActionChange("generating")
+				if (session.isGenerationInterrupted(generationId)) {
+					session.recordProviderCall(name, model.apiName, usage, "interrupted")
+					return GenerationOutcome(interrupted = true, usage = usage)
+				}
+				onActionChange("generating", AiActionBarManager.IndicatorState.PROVIDER_PROGRESS)
 				session.recordProviderCall(name, model.apiName, usage, "assistant")
-				return GenerationOutcome(extractText(response), usage)
+				return GenerationOutcome(extractText(response), usage = usage)
 			}
 			session.recordProviderCall(name, model.apiName, usage, "tool_calls")
 
 			conversation += response.toParam()
+			if (session.isGenerationInterrupted(generationId)) {
+				return GenerationOutcome(interrupted = true, usage = usage)
+			}
 
-			val toolResults = toolUses.map { toolUse ->
-				onActionChange("using ${toolUse.name()}")
-				val arguments = parseJsonArguments(toolUse._input())
-				val invocation = ToolManager.invoke(
-					boundedPlayerId = session.boundPlayerId,
+			onActionChange(toolBatchActionLabel(toolUses.map { it.name() }), AiActionBarManager.IndicatorState.TOOL_PROCESSING)
+			val toolRequests = toolUses.map { toolUse ->
+				ToolManager.ToolCallRequest(
 					name = toolUse.name(),
-					arguments = arguments,
+					arguments = parseJsonArguments(toolUse._input()),
 				)
-				val result = invocation.fold(
+			}
+			val toolOutcomes = ToolManager.invokeAllParallel(session.boundPlayerId, toolRequests) { started ->
+				started.conversationMessage?.let { content ->
+					session.addToolMessage(content)
+					session.lastMessage().getOrNull()?.let(onMessageAdded)
+				}
+			}
+			if (session.isGenerationInterrupted(generationId)) {
+				return GenerationOutcome(interrupted = true)
+			}
+			val batchIndicator = if (toolOutcomes.any(::hasToolError)) {
+				AiActionBarManager.IndicatorState.TOOL_ERROR
+			} else {
+				AiActionBarManager.IndicatorState.TOOL_SUCCESS
+			}
+			onActionChange(toolBatchActionLabel(toolUses.map { it.name() }), batchIndicator)
+
+			val toolResults = toolUses.zip(toolOutcomes).map { (toolUse, outcome) ->
+				val result = outcome.invocation.fold(
 					onSuccess = { toolInvocation ->
-						toolInvocation.conversationMessage?.let { content ->
-							session.addToolMessage(content)
-							session.lastMessage().getOrNull()?.let(onMessageAdded)
-						}
-						session.recordToolInvocation(toolUse.name(), arguments, toolInvocation.execution, toolInvocation.conversationMessage)
+						session.recordToolInvocation(toolUse.name(), outcome.arguments, toolInvocation.execution, toolInvocation.conversationMessage)
 						toolInvocation.execution
 					},
 					onFailure = { error ->
@@ -219,7 +258,7 @@ object AnthropicProvider : AiProvider {
 							payload = mapOf("message" to (error.message ?: "Tool invocation failed: ${toolUse.name()}")),
 							isError = true,
 						)
-						session.recordToolInvocation(toolUse.name(), arguments, failedResult, null)
+						session.recordToolInvocation(toolUse.name(), outcome.arguments, failedResult, null)
 						failedResult
 					},
 				)
@@ -255,7 +294,7 @@ object AnthropicProvider : AiProvider {
 		client: com.anthropic.client.AnthropicClient,
 		params: MessageCreateParams,
 		model: AiModel,
-		onActionChange: (String) -> Unit,
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit,
 	): String {
 		val response = client.messages().createStreaming(params)
 		val text = StringBuilder()
@@ -272,7 +311,7 @@ object AnthropicProvider : AiProvider {
 					delta.isThinking() -> Unit
 					delta.isText() -> {
 						if (!generating) {
-							onActionChange("generating")
+							onActionChange("generating", AiActionBarManager.IndicatorState.PROVIDER_PROGRESS)
 							generating = true
 						}
 						text.append(delta.asText().text())
@@ -395,7 +434,8 @@ object AnthropicProvider : AiProvider {
 	}
 
 	private data class GenerationOutcome(
-		val text: String,
+		val text: String = "",
+		val interrupted: Boolean = false,
 		val usage: SessionTokenUsage? = null,
 	)
 

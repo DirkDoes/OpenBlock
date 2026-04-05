@@ -9,6 +9,7 @@ import com.google.genai.types.GenerateContentConfig
 import com.google.genai.types.Part
 import com.google.genai.types.Schema
 import com.google.genai.types.ThinkingConfig
+import me.wanttobee.openblock.ai.AiActionBarManager
 import me.wanttobee.openblock.ai.sessions.Session
 import me.wanttobee.openblock.ai.sessions.AiModel
 import me.wanttobee.openblock.ai.sessions.base.SessionMessage
@@ -129,9 +130,14 @@ object GoogleAiProvider : AiProvider {
 	override fun generate(
 		model: AiModel,
 		session: Session,
-		onActionChange: (String) -> Unit,
+		generationId: Long,
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit,
 		onMessageAdded: (SessionMessage) -> Unit,
 	): Result<Boolean> {
+		if (session.isGenerationInterrupted(generationId)) {
+			return Result.success(false)
+		}
+
 		val result = withClient { client ->
 			val enabledTools = enabledTools(session)
 			if (enabledTools.isEmpty()) {
@@ -147,17 +153,26 @@ object GoogleAiProvider : AiProvider {
 				}.build()
 				val response = client.models.generateContent(model.apiName, toContents(session), config)
 				val usage = googleUsage(response).getOrNull()
-				session.recordProviderCall(name, model.apiName, usage, "assistant")
-				GenerationOutcome(
-					response.text()?.takeIf { it.isNotBlank() } ?: "Google returned an empty response.",
-					usage,
-				)
+				if (session.isGenerationInterrupted(generationId)) {
+					session.recordProviderCall(name, model.apiName, usage, "interrupted")
+					GenerationOutcome(interrupted = true, usage = usage)
+				} else {
+					session.recordProviderCall(name, model.apiName, usage, "assistant")
+					GenerationOutcome(
+						response.text()?.takeIf { it.isNotBlank() } ?: "Google returned an empty response.",
+						usage = usage,
+					)
+				}
 			} else {
-				generateWithTools(client, model, session, enabledTools, onActionChange, onMessageAdded)
+				generateWithTools(client, model, session, generationId, enabledTools, onActionChange, onMessageAdded)
 			}
 		}.mapCatching { outcome ->
-			session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName)
-			true
+			if (outcome.interrupted) {
+				false
+			} else {
+				session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName)
+				true
+			}
 		}
 
 		result.onFailure { exception ->
@@ -170,13 +185,18 @@ object GoogleAiProvider : AiProvider {
 		client: Client,
 		model: AiModel,
 		session: Session,
+		generationId: Long,
 		enabledTools: List<AiTool>,
-		onActionChange: (String) -> Unit,
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit,
 		onMessageAdded: (SessionMessage) -> Unit,
 	): GenerationOutcome {
 		val conversation = toContents(session).toMutableList()
 
 		repeat(AiProvider.MAX_TOOL_CALLS) {
+			if (session.isGenerationInterrupted(generationId)) {
+				return GenerationOutcome(interrupted = true)
+			}
+
 			val config = GenerateContentConfig.builder().apply {
 				session.effectiveSystemPrompt().getOrNull()?.let { prompt ->
 					systemInstruction(
@@ -198,11 +218,15 @@ object GoogleAiProvider : AiProvider {
 			val usage = googleUsage(response).getOrNull()
 			val functionCalls = response.functionCalls() ?: emptyList()
 			if (functionCalls.isEmpty()) {
-				onActionChange("generating")
+				if (session.isGenerationInterrupted(generationId)) {
+					session.recordProviderCall(name, model.apiName, usage, "interrupted")
+					return GenerationOutcome(interrupted = true, usage = usage)
+				}
+				onActionChange("generating", AiActionBarManager.IndicatorState.PROVIDER_PROGRESS)
 				session.recordProviderCall(name, model.apiName, usage, "assistant")
 				return GenerationOutcome(
 					response.text()?.takeIf { it.isNotBlank() } ?: "Google returned an empty response.",
-					usage,
+					usage = usage,
 				)
 			}
 			session.recordProviderCall(name, model.apiName, usage, "tool_calls")
@@ -213,25 +237,40 @@ object GoogleAiProvider : AiProvider {
 					.parts(parts)
 					.build()
 			}
+			if (session.isGenerationInterrupted(generationId)) {
+				return GenerationOutcome(interrupted = true, usage = usage)
+			}
 
-			val functionResponses = functionCalls.map { functionCall ->
-				val toolName = functionCall.name().orElse("")
-				onActionChange("using ${functionCall.name().orElse("tool")}")
-				val arguments = functionCall.args()
-					.orElse(emptyMap())
-					.mapValues { (_, value) -> value?.toString().orEmpty() }
-				val invocation = ToolManager.invoke(
-					boundedPlayerId = session.boundPlayerId,
-					name = toolName,
-					arguments = arguments,
+			onActionChange(toolBatchActionLabel(functionCalls.map { it.name().orElse("tool") }), AiActionBarManager.IndicatorState.TOOL_PROCESSING)
+			val toolRequests = functionCalls.map { functionCall ->
+				ToolManager.ToolCallRequest(
+					name = functionCall.name().orElse(""),
+					arguments = functionCall.args()
+						.orElse(emptyMap())
+						.mapValues { (_, value) -> value?.toString().orEmpty() },
 				)
-				val result = invocation.fold(
+			}
+			val toolOutcomes = ToolManager.invokeAllParallel(session.boundPlayerId, toolRequests) { started ->
+				started.conversationMessage?.let { content ->
+					session.addToolMessage(content)
+					session.lastMessage().getOrNull()?.let(onMessageAdded)
+				}
+			}
+			if (session.isGenerationInterrupted(generationId)) {
+				return GenerationOutcome(interrupted = true)
+			}
+			val batchIndicator = if (toolOutcomes.any(::hasToolError)) {
+				AiActionBarManager.IndicatorState.TOOL_ERROR
+			} else {
+				AiActionBarManager.IndicatorState.TOOL_SUCCESS
+			}
+			onActionChange(toolBatchActionLabel(functionCalls.map { it.name().orElse("tool") }), batchIndicator)
+
+			val functionResponses = functionCalls.zip(toolOutcomes).map { (functionCall, outcome) ->
+				val toolName = functionCall.name().orElse("")
+				val result = outcome.invocation.fold(
 					onSuccess = { toolInvocation ->
-						toolInvocation.conversationMessage?.let { content ->
-							session.addToolMessage(content)
-							session.lastMessage().getOrNull()?.let(onMessageAdded)
-						}
-						session.recordToolInvocation(toolName, arguments, toolInvocation.execution, toolInvocation.conversationMessage)
+						session.recordToolInvocation(toolName, outcome.arguments, toolInvocation.execution, toolInvocation.conversationMessage)
 						toolInvocation.execution
 					},
 					onFailure = { error ->
@@ -239,7 +278,7 @@ object GoogleAiProvider : AiProvider {
 							payload = mapOf("message" to (error.message ?: "Tool invocation failed: $toolName")),
 							isError = true,
 						)
-						session.recordToolInvocation(toolName, arguments, failedResult, null)
+						session.recordToolInvocation(toolName, outcome.arguments, failedResult, null)
 						failedResult
 					},
 				)
@@ -270,7 +309,7 @@ object GoogleAiProvider : AiProvider {
 		contents: List<Content>,
 		config: GenerateContentConfig,
 		model: AiModel,
-		onActionChange: (String) -> Unit,
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit,
 	): String {
 		val response = client.models.generateContentStream(modelName, contents, config)
 		val text = StringBuilder()
@@ -302,7 +341,7 @@ object GoogleAiProvider : AiProvider {
 					}
 
 					if (!generating) {
-						onActionChange("generating")
+						onActionChange("generating", AiActionBarManager.IndicatorState.PROVIDER_PROGRESS)
 						generating = true
 					}
 					text.append(partText)
@@ -389,7 +428,8 @@ object GoogleAiProvider : AiProvider {
 	}
 
 	private data class GenerationOutcome(
-		val text: String,
+		val text: String = "",
+		val interrupted: Boolean = false,
 		val usage: SessionTokenUsage? = null,
 	)
 
