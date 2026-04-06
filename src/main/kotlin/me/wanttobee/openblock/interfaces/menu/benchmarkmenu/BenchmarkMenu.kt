@@ -1,14 +1,16 @@
 package me.wanttobee.openblock.interfaces.menu.benchmarkmenu
 
 import me.wanttobee.openblock.benchmarking.BenchmarkCatalogManager
+import me.wanttobee.openblock.benchmarking.BenchmarkBookInputManager
 import me.wanttobee.openblock.benchmarking.BenchmarkPresetManager
-import me.wanttobee.openblock.benchmarking.BenchmarkTaskInputManager
 import me.wanttobee.openblock.benchmarking.BenchmarkTagManager
+import me.wanttobee.openblock.interfaces.menu.base.AnvilInputMenu
 import me.wanttobee.openblock.interfaces.menu.base.MenuOpener
 import net.minecraft.ChatFormatting
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.item.Item
+import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 
 internal object BenchmarkMenu {
@@ -44,7 +46,7 @@ internal object BenchmarkMenu {
 	}
 
 	fun openCreateFolderInput(player: ServerPlayer, pathSegments: List<String>, returnPage: Int) {
-		openNameInput(player, "Create Folder", Items.WHITE_SHULKER_BOX, "") { submittedName ->
+		openNameInput(player, "Create Folder", Items.WHITE_SHULKER_BOX, "", onSubmit = { submittedName ->
 			BenchmarkCatalogManager.createFolder(pathSegments, submittedName)
 				.onSuccess { entry ->
 					openCatalog(player, pathSegments, returnPage, entry.storedName)
@@ -55,11 +57,11 @@ internal object BenchmarkMenu {
 					)
 					openCatalog(player, pathSegments, returnPage)
 				}
-		}
+		})
 	}
 
 	fun openCreatePresetInput(player: ServerPlayer, pathSegments: List<String>, returnPage: Int) {
-		openNameInput(player, "Create Benchmark", Items.IRON_INGOT, "") { submittedName ->
+		openNameInput(player, "Create Benchmark", Items.IRON_INGOT, "", onSubmit = { submittedName ->
 			BenchmarkPresetManager.createPreset(player.uuid, pathSegments, submittedName)
 				.onSuccess { entry ->
 					openCatalog(player, pathSegments, returnPage, entry.storedName)
@@ -70,11 +72,11 @@ internal object BenchmarkMenu {
 					)
 					openCatalog(player, pathSegments, returnPage)
 				}
-		}
+		})
 	}
 
 	fun openCreateTagInput(player: ServerPlayer, returnPage: Int) {
-		openNameInput(player, "Create Tag", Items.LIME_CANDLE, "") { submittedName ->
+		openNameInput(player, "Create Tag", Items.LIME_CANDLE, "", onSubmit = { submittedName ->
 			BenchmarkTagManager.createTag(submittedName)
 				.onSuccess { entry ->
 					openTags(player, returnPage, entry.id)
@@ -85,7 +87,7 @@ internal object BenchmarkMenu {
 					)
 					openTags(player, returnPage)
 				}
-		}
+		})
 	}
 
 	fun openOverrideConfirm(
@@ -133,7 +135,7 @@ internal object BenchmarkMenu {
 			return
 		}
 
-		openNameInput(player, "Summary", Items.PAPER, metadata.summary) { submittedSummary ->
+		openNameInput(player, "Summary", Items.PAPER, metadata.summary, onSubmit = { submittedSummary ->
 			BenchmarkPresetManager.updateSummary(pathSegments, entry, submittedSummary)
 				.onSuccess {
 					openPresetEditMenu(player, pathSegments, returnPage, entry)
@@ -144,7 +146,7 @@ internal object BenchmarkMenu {
 					)
 					openPresetEditMenu(player, pathSegments, returnPage, entry)
 				}
-		}
+		})
 	}
 
 	fun openTaskInput(
@@ -161,16 +163,9 @@ internal object BenchmarkMenu {
 			return
 		}
 
-		player.sendSystemMessage(
-			Component.literal("Type the benchmark task in chat. Send 'cancel' to abort.").withStyle(ChatFormatting.YELLOW)
-		)
-		if (metadata.task.isNotBlank()) {
-			player.sendSystemMessage(
-				Component.literal("Current task: ${metadata.task}").withStyle(ChatFormatting.GRAY)
-			)
-		}
-		BenchmarkTaskInputManager.start(
+		openLongTextInput(
 			player = player,
+			currentValue = metadata.task,
 			onSubmit = { sender, submittedTask ->
 				BenchmarkPresetManager.updateTask(pathSegments, entry, submittedTask)
 					.onSuccess {
@@ -182,10 +177,6 @@ internal object BenchmarkMenu {
 						)
 						openPresetEditMenu(sender, pathSegments, returnPage, entry)
 					}
-			},
-			onCancel = { sender ->
-				sender.sendSystemMessage(Component.literal("Benchmark task edit cancelled.").withStyle(ChatFormatting.GRAY))
-				openPresetEditMenu(sender, pathSegments, returnPage, entry)
 			},
 		)
 	}
@@ -202,13 +193,106 @@ internal object BenchmarkMenu {
 		}
 	}
 
+	fun openPresetTargetsMenu(
+		player: ServerPlayer,
+		pathSegments: List<String>,
+		returnPage: Int,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		page: Int = 0,
+		initialSelection: String? = null,
+	) {
+		MenuOpener.open(player, Component.literal("Preset Targets")) { containerId, inventory ->
+			BenchmarkPresetTargetsMenu(containerId, inventory, player.uuid, pathSegments, returnPage, entry, page, initialSelection)
+		}
+	}
+
+	fun openCreatePresetTargetKeyInput(
+		player: ServerPlayer,
+		pathSegments: List<String>,
+		returnPage: Int,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		page: Int,
+	) {
+		openNameInput(player, "Target Key", Items.YELLOW_STAINED_GLASS, "", onSubmit = { submittedKey ->
+			openCreatePresetTargetDescriptionInput(player, pathSegments, returnPage, entry, page, submittedKey)
+		})
+	}
+
+	fun openRenamePresetTargetInput(
+		player: ServerPlayer,
+		pathSegments: List<String>,
+		returnPage: Int,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		page: Int,
+		target: BenchmarkPresetManager.PresetTargetEntry,
+	) {
+		openNameInput(player, "Change Target Name", Items.YELLOW_STAINED_GLASS, target.key, onSubmit = { submittedKey ->
+			BenchmarkPresetManager.renameTarget(pathSegments, entry, target.key, submittedKey)
+				.onSuccess { renamedTarget ->
+					openPresetTargetsMenu(player, pathSegments, returnPage, entry, page, renamedTarget.key)
+				}
+				.onFailure { error ->
+					player.sendSystemMessage(
+						Component.literal(error.message ?: "Unable to rename preset target.").withStyle(ChatFormatting.RED)
+					)
+					openPresetTargetsMenu(player, pathSegments, returnPage, entry, page, target.key)
+				}
+		})
+	}
+
+	fun openPresetTargetDescriptionInput(
+		player: ServerPlayer,
+		pathSegments: List<String>,
+		returnPage: Int,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		page: Int,
+		target: BenchmarkPresetManager.PresetTargetEntry,
+	) {
+		openLongTextInput(
+			player = player,
+			currentValue = target.description,
+			onSubmit = { sender, submittedDescription ->
+				BenchmarkPresetManager.updateTargetDescription(pathSegments, entry, target.key, submittedDescription)
+					.onSuccess { updatedTarget ->
+						openPresetTargetsMenu(sender, pathSegments, returnPage, entry, page, updatedTarget.key)
+					}
+					.onFailure { error ->
+						sender.sendSystemMessage(
+							Component.literal(error.message ?: "Unable to update preset target description.").withStyle(ChatFormatting.RED)
+						)
+						openPresetTargetsMenu(sender, pathSegments, returnPage, entry, page, target.key)
+					}
+			},
+		)
+	}
+
+	fun deletePresetTarget(
+		player: ServerPlayer,
+		pathSegments: List<String>,
+		returnPage: Int,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		page: Int,
+		target: BenchmarkPresetManager.PresetTargetEntry,
+	) {
+		BenchmarkPresetManager.deleteTarget(pathSegments, entry, target.key)
+			.onSuccess {
+				openPresetTargetsMenu(player, pathSegments, returnPage, entry, page)
+			}
+			.onFailure { error ->
+				player.sendSystemMessage(
+					Component.literal(error.message ?: "Unable to delete preset target.").withStyle(ChatFormatting.RED)
+				)
+				openPresetTargetsMenu(player, pathSegments, returnPage, entry, page, target.key)
+			}
+	}
+
 	fun openRenameInput(
 		player: ServerPlayer,
 		pathSegments: List<String>,
 		returnPage: Int,
 		entry: BenchmarkCatalogManager.CatalogEntry,
 	) {
-		openNameInput(player, "Rename", entry.iconItem(), entry.displayName) { submittedName ->
+		openNameInput(player, "Rename", entry.iconItem(), entry.displayName, onSubmit = { submittedName ->
 			BenchmarkCatalogManager.renameEntry(pathSegments, entry, submittedName)
 				.onSuccess { renamedEntry ->
 					openCatalog(player, pathSegments, returnPage, renamedEntry.storedName)
@@ -219,7 +303,7 @@ internal object BenchmarkMenu {
 					)
 					openCatalog(player, pathSegments, returnPage, entry.storedName)
 				}
-		}
+		})
 	}
 
 	fun openRenameTagInput(
@@ -227,7 +311,7 @@ internal object BenchmarkMenu {
 		returnPage: Int,
 		entry: BenchmarkTagManager.TagEntry,
 	) {
-		openNameInput(player, "Rename Tag", Items.WHITE_CANDLE, entry.name) { submittedName ->
+		openNameInput(player, "Rename Tag", Items.WHITE_CANDLE, entry.name, onSubmit = { submittedName ->
 			BenchmarkTagManager.renameTag(entry, submittedName)
 				.onSuccess { renamedEntry ->
 					openTags(player, returnPage, renamedEntry.id)
@@ -238,7 +322,7 @@ internal object BenchmarkMenu {
 					)
 					openTags(player, returnPage, entry.id)
 				}
-		}
+		})
 	}
 
 	private fun openNameInput(
@@ -248,9 +332,75 @@ internal object BenchmarkMenu {
 		initialName: String,
 		onSubmit: (String) -> Unit,
 	) {
-		MenuOpener.open(player, Component.literal(title)) { containerId, inventory ->
-			BenchmarkNameInputMenu(containerId, inventory, icon, initialName, onSubmit)
-		}
+		AnvilInputMenu.awaitResult(
+			player = player,
+			title = Component.literal(title),
+			itemStack = ItemStack(icon),
+			initialValue = initialName,
+			onResult = { submittedValue ->
+				if (submittedValue != null) {
+					onSubmit(submittedValue)
+				}
+			},
+		)
+	}
+
+	private fun openNameInput(
+		player: ServerPlayer,
+		title: String,
+		itemStack: ItemStack,
+		initialName: String,
+		onSubmit: (String) -> Unit,
+	) {
+		AnvilInputMenu.awaitResult(
+			player = player,
+			title = Component.literal(title),
+			itemStack = itemStack,
+			initialValue = initialName,
+			onResult = { submittedValue ->
+				if (submittedValue != null) {
+					onSubmit(submittedValue)
+				}
+			},
+		)
+	}
+
+	private fun openCreatePresetTargetDescriptionInput(
+		player: ServerPlayer,
+		pathSegments: List<String>,
+		returnPage: Int,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		page: Int,
+		targetKey: String,
+	) {
+		openLongTextInput(
+			player = player,
+			currentValue = "",
+			onSubmit = { sender, submittedDescription ->
+				BenchmarkPresetManager.createTarget(pathSegments, entry, targetKey, submittedDescription)
+					.onSuccess { createdTarget ->
+						openPresetTargetsMenu(sender, pathSegments, returnPage, entry, page, createdTarget.key)
+					}
+					.onFailure { error ->
+						sender.sendSystemMessage(
+							Component.literal(error.message ?: "Unable to create preset target.").withStyle(ChatFormatting.RED)
+						)
+						openPresetTargetsMenu(sender, pathSegments, returnPage, entry, page)
+					}
+			},
+		)
+	}
+
+	private fun openLongTextInput(
+		player: ServerPlayer,
+		currentValue: String,
+		onSubmit: (ServerPlayer, String) -> Unit,
+	) {
+		BenchmarkBookInputManager.open(
+			player = player,
+			initialText = currentValue,
+			onSubmit = onSubmit,
+		)
 	}
 
 	private fun BenchmarkCatalogManager.CatalogEntry.iconItem(): Item {

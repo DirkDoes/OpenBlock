@@ -17,7 +17,7 @@ internal class BenchmarkTagMenu(
 	playerId: UUID,
 	initialPage: Int = 0,
 	initialSelection: String? = null,
-) : BaseListMenu(playerId, containerId, playerInventory, rows = 6, contentRows = 5, initialPage = initialPage) {
+) : BaseListMenu(playerId, containerId, playerInventory, rows = 4, contentRows = 3, initialPage = initialPage) {
 	private var selectedTagId: String? = initialSelection
 
 	init {

@@ -56,6 +56,7 @@ object BenchmarkPresetManager {
 				tagIds = preset.normalizedTagIds(),
 				summary = preset.normalizedSummary(),
 				task = preset.normalizedTask(),
+				targetDefinitions = preset.normalizedTargetDefinitions(),
 			)
 		}.getOrDefault(ExistingPresetMetadata())
 		val document = captureCurrentPreset(playerId)
@@ -65,6 +66,7 @@ object BenchmarkPresetManager {
 					tagIds = existingMetadata.tagIds,
 					summary = existingMetadata.summary,
 					task = existingMetadata.task,
+					targetDefinitions = existingMetadata.targetDefinitions,
 				)
 			}
 			.getOrElse { return Result.failure(it) }
@@ -130,6 +132,129 @@ object BenchmarkPresetManager {
 		return BenchmarkCatalogManager.overwritePreset(pathSegments, entry, gson.toJson(updatedPreset) + "\n")
 	}
 
+	fun targets(
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+	): Result<List<PresetTargetEntry>> {
+		return loadPreset(pathSegments, entry).map { preset ->
+			preset.normalizedTargetDefinitions().map { target ->
+				PresetTargetEntry(
+					key = target.key,
+					description = target.normalizedDescription(),
+				)
+			}
+		}
+	}
+
+	fun createTarget(
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		rawKey: String,
+		description: String,
+	): Result<PresetTargetEntry> {
+		val normalizedKey = normalizedTargetKey(rawKey).getOrElse { return Result.failure(it) }
+		val normalizedDescription = description.trim()
+		val updatedPreset = loadPreset(pathSegments, entry)
+			.map { preset ->
+				if (preset.normalizedTargetDefinitions().any { it.key == normalizedKey }) {
+					error("A preset target with that key already exists.")
+				}
+				preset.copy(
+					targetDefinitions = (preset.normalizedTargetDefinitions() + PersistedTargetDefinition(
+						key = normalizedKey,
+						description = normalizedDescription,
+					)).sortedBy(PersistedTargetDefinition::key)
+				)
+			}
+			.getOrElse { return Result.failure(it) }
+		return BenchmarkCatalogManager.overwritePreset(pathSegments, entry, gson.toJson(updatedPreset) + "\n")
+			.map {
+				PresetTargetEntry(
+					key = normalizedKey,
+					description = normalizedDescription,
+				)
+			}
+	}
+
+	fun renameTarget(
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		targetKey: String,
+		rawKey: String,
+	): Result<PresetTargetEntry> {
+		val normalizedKey = normalizedTargetKey(rawKey).getOrElse { return Result.failure(it) }
+		val updatedPreset = loadPreset(pathSegments, entry)
+			.map { preset ->
+				val existingTarget = preset.normalizedTargetDefinitions().firstOrNull { it.key == targetKey }
+					?: error("That preset target no longer exists.")
+				if (targetKey != normalizedKey && preset.normalizedTargetDefinitions().any { it.key == normalizedKey }) {
+					error("A preset target with that key already exists.")
+				}
+				preset.copy(
+					targetDefinitions = preset.normalizedTargetDefinitions()
+						.filterNot { it.key == targetKey }
+						.plus(existingTarget.copy(key = normalizedKey))
+						.sortedBy(PersistedTargetDefinition::key)
+				)
+			}
+			.getOrElse { return Result.failure(it) }
+		return BenchmarkCatalogManager.overwritePreset(pathSegments, entry, gson.toJson(updatedPreset) + "\n")
+			.map {
+				val renamedTarget = updatedPreset.normalizedTargetDefinitions().first { it.key == normalizedKey }
+				PresetTargetEntry(
+					key = renamedTarget.key,
+					description = renamedTarget.normalizedDescription(),
+				)
+			}
+	}
+
+	fun updateTargetDescription(
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		targetKey: String,
+		description: String,
+	): Result<PresetTargetEntry> {
+		val normalizedDescription = description.trim()
+		val updatedPreset = loadPreset(pathSegments, entry)
+			.map { preset ->
+				val existingTarget = preset.normalizedTargetDefinitions().firstOrNull { it.key == targetKey }
+					?: error("That preset target no longer exists.")
+				preset.copy(
+					targetDefinitions = preset.normalizedTargetDefinitions()
+						.filterNot { it.key == targetKey }
+						.plus(existingTarget.copy(description = normalizedDescription))
+						.sortedBy(PersistedTargetDefinition::key)
+				)
+			}
+			.getOrElse { return Result.failure(it) }
+		return BenchmarkCatalogManager.overwritePreset(pathSegments, entry, gson.toJson(updatedPreset) + "\n")
+			.map {
+				PresetTargetEntry(
+					key = targetKey,
+					description = normalizedDescription,
+				)
+			}
+	}
+
+	fun deleteTarget(
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		targetKey: String,
+	): Result<Unit> {
+		val updatedPreset = loadPreset(pathSegments, entry)
+			.map { preset ->
+				if (preset.normalizedTargetDefinitions().none { it.key == targetKey }) {
+					error("That preset target no longer exists.")
+				}
+				preset.copy(
+					targetDefinitions = preset.normalizedTargetDefinitions().filterNot { it.key == targetKey }
+				)
+			}
+			.getOrElse { return Result.failure(it) }
+		return BenchmarkCatalogManager.overwritePreset(pathSegments, entry, gson.toJson(updatedPreset) + "\n")
+			.map { Unit }
+	}
+
 	fun placePresetHere(
 		playerId: UUID,
 		pathSegments: List<String>,
@@ -179,6 +304,7 @@ object BenchmarkPresetManager {
 				tagIds = emptyList(),
 				summary = "",
 				task = "",
+				targetDefinitions = emptyList(),
 				relativeSandbox = PersistedRelativeSandbox(
 					boundary = PersistedRelativeRegion(
 						firstCorner = relativePosition(origin, sandbox.minCorner()),
@@ -472,6 +598,23 @@ object BenchmarkPresetManager {
 		)
 	}
 
+	private fun normalizedTargetKey(rawKey: String): Result<String> {
+		val sanitized = rawKey.trim()
+			.lowercase()
+			.map { character ->
+				if (character in 'a'..'z' || character in '0'..'9' || character == '_') {
+					character
+				} else {
+					'_'
+				}
+			}
+			.joinToString("")
+		if (sanitized.isBlank()) {
+			return Result.failure(IllegalArgumentException("Target key cannot be blank."))
+		}
+		return Result.success(sanitized)
+	}
+
 	data class CaptureSummary(
 		val acceptedToolCallCount: Int,
 		val exclusionCount: Int,
@@ -496,6 +639,11 @@ object BenchmarkPresetManager {
 		val task: String,
 	)
 
+	data class PresetTargetEntry(
+		val key: String,
+		val description: String,
+	)
+
 	private data class PersistedPreset(
 		val name: String,
 		val acceptedToolCalls: List<String>,
@@ -503,6 +651,8 @@ object BenchmarkPresetManager {
 		val tagIds: List<String>? = emptyList(),
 		val summary: String? = "",
 		val task: String? = "",
+		@SerializedName(value = "targets", alternate = ["targetDefinitions"])
+		val targetDefinitions: List<PersistedTargetDefinition>? = emptyList(),
 		val relativeSandbox: PersistedRelativeSandbox,
 		val build: List<PersistedRelativeBlock>? = null,
 	) {
@@ -516,6 +666,18 @@ object BenchmarkPresetManager {
 		fun normalizedSummary(): String = summary?.trim().orEmpty()
 
 		fun normalizedTask(): String = task?.trim().orEmpty()
+
+		fun normalizedTargetDefinitions(): List<PersistedTargetDefinition> {
+			val normalizedTargets = linkedMapOf<String, PersistedTargetDefinition>()
+			for (target in targetDefinitions.orEmpty()) {
+				val normalizedKey = normalizedTargetKey(target.key).getOrNull() ?: continue
+				normalizedTargets[normalizedKey] = PersistedTargetDefinition(
+					key = normalizedKey,
+					description = target.normalizedDescription(),
+				)
+			}
+			return normalizedTargets.values.sortedBy(PersistedTargetDefinition::key)
+		}
 	}
 
 	private data class PersistedRelativeSandbox(
@@ -550,6 +712,13 @@ object BenchmarkPresetManager {
 		val count: Int,
 	)
 
+	private data class PersistedTargetDefinition(
+		val key: String,
+		val description: String = "",
+	) {
+		fun normalizedDescription(): String = description.trim()
+	}
+
 	private data class PersistedNamedRelativePosition(
 		val name: String,
 		val position: PersistedRelativePosition,
@@ -577,5 +746,6 @@ object BenchmarkPresetManager {
 		val tagIds: List<String> = emptyList(),
 		val summary: String = "",
 		val task: String = "",
+		val targetDefinitions: List<PersistedTargetDefinition> = emptyList(),
 	)
 }

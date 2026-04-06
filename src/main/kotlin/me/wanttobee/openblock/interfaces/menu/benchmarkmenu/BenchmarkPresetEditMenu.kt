@@ -29,6 +29,7 @@ internal class BenchmarkPresetEditMenu(
 	private fun refreshMenu() {
 		resetMenu()
 		val hasCurrentSandbox = BenchmarkPresetManager.hasCurrentSandbox(playerId)
+		val metadata = BenchmarkPresetManager.metadata(pathSegments, entry).getOrNull()
 
 		for (slot in 0 until 9) {
 			setDisplayItem(slot, MenuItems.namelessPlaceholderPaneItem())
@@ -50,8 +51,12 @@ internal class BenchmarkPresetEditMenu(
 			1,
 			MenuItems.menuItem(
 				item = Items.WRITABLE_BOOK,
-				name = Component.literal("Task").withStyle(ChatFormatting.YELLOW),
-				lore = listOf(Component.literal("Edit the benchmark preset task text.").withStyle(ChatFormatting.GRAY)),
+				name = Component.literal("Edit Task").withStyle(ChatFormatting.YELLOW),
+				lore = listOf(
+					Component.literal(
+						metadata?.task?.ifBlank { "No task written yet." } ?: "Unable to load current task."
+					).withStyle(if (metadata == null) ChatFormatting.RED else ChatFormatting.GRAY),
+				),
 			),
 		) { player, button, input ->
 			if (button == 0 && input == ContainerInput.PICKUP) {
@@ -121,6 +126,23 @@ internal class BenchmarkPresetEditMenu(
 		) { player, button, input ->
 			if (hasCurrentSandbox && button == 0 && input == ContainerInput.PICKUP) {
 				BenchmarkMenu.openOverrideConfirm(player, pathSegments, returnPage, entry)
+			}
+		}
+		setButton(
+			6,
+			MenuItems.menuItem(
+				item = Items.YELLOW_STAINED_GLASS,
+				name = Component.literal("Targets").withStyle(ChatFormatting.YELLOW),
+				lore = listOf(Component.literal("Edit the preset target keys and descriptions.").withStyle(ChatFormatting.GRAY)),
+			),
+		) { player, button, input ->
+			if (button == 0 && input == ContainerInput.PICKUP) {
+				BenchmarkMenu.openPresetTargetsMenu(player, pathSegments, returnPage, entry)
+			}
+		}
+		setButton(8, MenuItems.backItem()) { player, button, input ->
+			if (button == 0 && input == ContainerInput.PICKUP) {
+				BenchmarkMenu.openCatalog(player, pathSegments, returnPage, entry.storedName)
 			}
 		}
 		broadcastChanges()

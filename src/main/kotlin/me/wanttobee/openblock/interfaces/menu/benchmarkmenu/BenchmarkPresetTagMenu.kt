@@ -21,7 +21,7 @@ internal class BenchmarkPresetTagMenu(
 	private val returnPage: Int,
 	private val entry: BenchmarkCatalogManager.CatalogEntry,
 	initialPage: Int = 0,
-) : BaseListMenu(playerId, containerId, playerInventory, rows = 6, contentRows = 5, initialPage = initialPage) {
+) : BaseListMenu(playerId, containerId, playerInventory, rows = 4, contentRows = 3, initialPage = initialPage) {
 	init {
 		refreshMenu()
 	}
@@ -40,13 +40,13 @@ internal class BenchmarkPresetTagMenu(
 		}
 
 		if (tags.isEmpty()) {
-			setDisplayItem(
-				centerContentSlot(),
-				MenuItems.menuItem(
-					item = Items.CANDLE,
-					name = Component.literal("No tags").withStyle(ChatFormatting.YELLOW),
-				),
-			)
+				setDisplayItem(
+					centerContentSlot(),
+					MenuItems.menuItem(
+						item = Items.WHITE_CANDLE,
+						name = Component.literal("No tags").withStyle(ChatFormatting.YELLOW),
+					),
+				)
 		} else {
 			pageEntries(tags).forEachIndexed { index, tag ->
 				val selected = tag.id in selectedTagIds
@@ -107,7 +107,7 @@ internal class BenchmarkPresetTagMenu(
 	}
 
 	private fun tagItem(tag: BenchmarkTagManager.TagEntry, selected: Boolean) = MenuItems.menuItem(
-		item = Items.CANDLE,
+		item = Items.WHITE_CANDLE,
 		name = Component.literal(tag.name).withStyle(ChatFormatting.YELLOW),
 		glint = selected,
 	)
