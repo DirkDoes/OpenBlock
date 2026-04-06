@@ -10,8 +10,8 @@ import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 
 object BenchmarkTagManager {
-	private const val TAGS_FILE = "openblock/benchmarks/tags.json"
-	private const val LEGACY_TAGS_DIR = "openblock/benchmarks/tags"
+	private const val TAGS_FILE = "openblock-data/benchmarks/tags.json"
+	private const val LEGACY_TAGS_DIR = "openblock-data/benchmarks/tags"
 	private const val LEGACY_TAG_SUFFIX = ".tag"
 	private val gson = GsonBuilder()
 		.setPrettyPrinting()

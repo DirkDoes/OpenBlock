@@ -8,6 +8,7 @@ import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument
 import net.minecraft.core.BlockPos
+import net.minecraft.world.phys.Vec3
 import java.util.UUID
 
 object SandboxToolsSupport {
@@ -17,7 +18,7 @@ object SandboxToolsSupport {
 		name: String,
 		position: String?,
 	): AiToolExecution {
-		val scopedPlayerId = playerId ?: return failedExecution("Sandbox target management requires a bound player.")
+		val scopedPlayerId = playerId ?: return failedExecution("Sandbox target management requires a session scope.")
 		return when (action.trim().lowercase()) {
 			"add" -> addTarget(scopedPlayerId, name, position)
 			"remove" -> removeTarget(scopedPlayerId, name)
@@ -34,7 +35,7 @@ object SandboxToolsSupport {
 
 		val targetPosition = parseBlockPos(source, rawPosition)
 			.getOrElse { return failedExecution("Invalid position: $rawPosition") }
-		return AiService.addSandboxTarget(playerId, source.level.dimension(), name, targetPosition)
+		return AiService.addSandboxTargetForScope(playerId, source.level.dimension(), name, targetPosition)
 			.fold(
 				onSuccess = { sandbox ->
 					AiToolExecution(
@@ -56,7 +57,7 @@ object SandboxToolsSupport {
 	}
 
 	private fun removeTarget(playerId: UUID, name: String): AiToolExecution {
-		return AiService.removeSandboxTarget(playerId, name)
+		return AiService.removeSandboxTargetForScope(playerId, name)
 			.fold(
 				onSuccess = { sandbox ->
 					AiToolExecution(
@@ -79,8 +80,21 @@ object SandboxToolsSupport {
 	private fun toolContext(playerId: UUID): Result<CommandSourceStack> {
 		val server = OpenBlock.currentServer().getOrElse { return Result.failure(it) }
 		val player = server.playerList.getPlayer(playerId)
-			?: return Result.failure(NoSuchElementException("Bound player is not online."))
-		return Result.success(player.createCommandSourceStack())
+		return if (player != null) {
+			Result.success(player.createCommandSourceStack())
+		} else {
+			val sandbox = AiService.currentSandboxForScope(playerId)
+			val level = sandbox?.dimension?.let(server::getLevel)
+			if (sandbox != null && level != null) {
+				Result.success(
+					CommandToolsSupport.createCommandSource(server, null)
+						.withLevel(level)
+						.withPosition(Vec3.atCenterOf(sandbox.minCorner()))
+				)
+			} else {
+				Result.success(CommandToolsSupport.createCommandSource(server, null))
+			}
+		}
 	}
 
 	private fun parseBlockPos(source: CommandSourceStack, rawPosition: String): Result<BlockPos> {

@@ -13,9 +13,15 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 class Session(
 	val id: UUID = UUID.randomUUID(),
-	val ownerPlayerId: UUID,
+	val ownerPlayerId: UUID?,
+	val storagePath: String,
 	val systemPrompt: String? = null,
 	val boundPlayerId: UUID? = null,
+	val toolScopeId: UUID = id,
+	val builtInPromptSections: List<String> = listOf(
+		KnowledgeBase.OPENBLOCK_IDENTITY,
+		KnowledgeBase.REDSTONE_DIRECTION_DETAILS,
+	),
 	private var persisted: Boolean = false,
 	initialEnabledToolNames: Set<String> = emptySet(),
 	initialAllowedCommandNames: Set<String> = emptySet(),
@@ -62,10 +68,9 @@ class Session(
 	}
 	fun effectiveSystemPrompt(): Result<String> {
 		val basePrompt = systemPrompt?.trim().orEmpty()
-		val builtInPrompt = listOf(
-			KnowledgeBase.OPENBLOCK_IDENTITY,
-			KnowledgeBase.REDSTONE_DIRECTION_DETAILS,
-		).joinToString("\n\n")
+		val builtInPrompt = builtInPromptSections
+			.filter(String::isNotBlank)
+			.joinToString("\n\n")
 		if (boundPlayerId == null) {
 			val prompt = listOf(builtInPrompt, basePrompt)
 				.filter { it.isNotBlank() }
@@ -96,7 +101,7 @@ class Session(
 		if (!persisted) {
 			persisted = true
 			SessionLogger.logSessionStarted(this)
-			AiSessionManager.updateSession(this)
+			persistState()
 		}
 		val hiddenParts = mutableListOf<String>()
 		boundPlayerId
@@ -122,7 +127,7 @@ class Session(
 		)
 		messages += message
 		SessionLogger.logMessage(this, message)
-		AiSessionManager.updateSession(this)
+		persistState()
 	}
 
 	@Synchronized
@@ -164,14 +169,14 @@ class Session(
 		)
 		messages += message
 		SessionLogger.logMessage(this, message)
-		AiSessionManager.updateSession(this)
+		persistState()
 	}
 
 	fun addToolMessage(content: String) {
 		val message = SessionMessage(SessionMessage.Type.TOOL, content)
 		messages += message
 		SessionLogger.logMessage(this, message)
-		AiSessionManager.updateSession(this)
+		persistState()
 	}
 
 	fun addErrorMessage(
@@ -189,7 +194,7 @@ class Session(
 		)
 		messages += message
 		SessionLogger.logMessage(this, message)
-		AiSessionManager.updateSession(this)
+		persistState()
 	}
 
 	fun appendPersistedMessage(message: SessionMessage) {
@@ -202,7 +207,7 @@ class Session(
 
 	internal fun updateSandboxState(sandbox: Sandbox?) {
 		this.sandbox = sandbox
-		AiSessionManager.updateSession(this)
+		persistState()
 	}
 
 	internal fun restoreToolState(enabledToolNames: Set<String>) {
@@ -216,7 +221,7 @@ class Session(
 		} else {
 			enabledToolNames -= toolName
 		}
-		AiSessionManager.updateSession(this)
+		persistState()
 	}
 
 	internal fun restoreCommandState(allowedCommandNames: Set<String>) {
@@ -230,7 +235,7 @@ class Session(
 		} else {
 			allowedCommandNames -= commandName
 		}
-		AiSessionManager.updateSession(this)
+		persistState()
 	}
 
 	fun recordProviderCall(
@@ -249,6 +254,10 @@ class Session(
 		conversationMessage: String? = null,
 	) {
 		SessionLogger.logToolInvocation(this, toolName, arguments, result, conversationMessage)
+	}
+
+	private fun persistState() {
+		AiSessionManager.updateSession(this)
 	}
 
 }

@@ -43,14 +43,17 @@ object CommandToolsSupport {
 			return defaultAllowedRoots.contains(rootName)
 		}
 
-		val session = AiSessionManager.getSession(playerId).getOrNull() ?: return defaultAllowedRoots.contains(rootName)
+		val session = AiSessionManager.findSessionForScope(playerId)
+			?: AiSessionManager.getSession(playerId).getOrNull()
+			?: return defaultAllowedRoots.contains(rootName)
 		return rootName in session.allowedCommandNames()
 	}
 
 	fun setAllowed(playerId: UUID?, commandName: String, allowed: Boolean): Result<Boolean> {
 		val rootName = normalizeRoot(commandName) ?: return Result.success(false)
 		val scopedPlayerId = playerId ?: return Result.success(false)
-		val session = AiSessionManager.getSession(scopedPlayerId).getOrElse { return Result.failure(it) }
+		val session = AiSessionManager.findSessionForScope(scopedPlayerId)
+			?: AiSessionManager.getSession(scopedPlayerId).getOrElse { return Result.failure(it) }
 		return allRegisteredCommands().map { registeredCommands ->
 			if (rootName !in registeredCommands && rootName !in defaultAllowedRoots) {
 				false

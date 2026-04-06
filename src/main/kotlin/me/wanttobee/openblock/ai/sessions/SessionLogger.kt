@@ -23,7 +23,8 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 object SessionLogger {
-	private const val LOG_DIR = "openblock/sessions"
+	private const val LOG_DIR = "openblock-data/sessions"
+	private const val PLAYER_SCOPE_PREFIX = "player"
 	private val namespacedIdPattern = Regex("[a-z0-9_.-]+:[a-z0-9_./-]+")
 	private val gson = GsonBuilder()
 		.setPrettyPrinting()
@@ -96,7 +97,8 @@ object SessionLogger {
 	}
 
 	fun listSessionSummaries(ownerPlayerId: UUID): Result<List<SessionSummary>> {
-		val directory = ownerDirectory(ownerPlayerId)
+		migrateLegacyPlayerSessions(ownerPlayerId).getOrElse { return Result.failure(it) }
+		val directory = storageDirectory(playerStoragePath(ownerPlayerId))
 			?: return Result.failure(IllegalStateException("Minecraft server is not available."))
 		if (!Files.isDirectory(directory)) {
 			return Result.success(emptyList())
@@ -111,7 +113,7 @@ object SessionLogger {
 				.map { snapshot ->
 					SessionSummary(
 						id = UUID.fromString(snapshot.sessionId),
-						ownerPlayerId = UUID.fromString(snapshot.ownerPlayerId),
+						ownerPlayerId = snapshot.ownerPlayerId?.let(UUID::fromString),
 						boundPlayerId = snapshot.boundPlayerId?.let(UUID::fromString),
 						systemPrompt = snapshot.systemPrompt,
 						userMessageCount = snapshot.summary.userMessageCount,
@@ -124,14 +126,58 @@ object SessionLogger {
 	}
 
 	fun loadSession(ownerPlayerId: UUID, sessionId: UUID): Result<Session> {
-		val snapshot = readSnapshot(logFile(ownerPlayerId, sessionId))
+		migrateLegacyPlayerSessions(ownerPlayerId).getOrElse { return Result.failure(it) }
+		val snapshot = readSnapshot(logFile(playerStoragePath(ownerPlayerId), sessionId))
 			?: return Result.failure(NoSuchElementException("Unknown session: $sessionId"))
+		return restoredSession(snapshot)
+	}
+
+	fun loadSession(storagePath: String, sessionId: UUID): Result<Session> {
+		val snapshot = readSnapshot(logFile(storagePath, sessionId))
+			?: return Result.failure(NoSuchElementException("Unknown session: $sessionId"))
+		return restoredSession(snapshot)
+	}
+
+	fun deleteSession(ownerPlayerId: UUID, sessionId: UUID): Result<Unit> {
+		migrateLegacyPlayerSessions(ownerPlayerId).getOrElse { return Result.failure(it) }
+		return deleteSession(playerStoragePath(ownerPlayerId), sessionId)
+	}
+
+	fun deleteSession(storagePath: String, sessionId: UUID): Result<Unit> {
+		return runCatching {
+			Files.deleteIfExists(logFile(storagePath, sessionId))
+			Unit
+		}
+	}
+
+	fun tokenTotals(storagePath: String, sessionId: UUID): Result<TokenTotals> {
+		val snapshot = readSnapshot(logFile(storagePath, sessionId))
+			?: return Result.failure(NoSuchElementException("Unknown session: $sessionId"))
+		return Result.success(
+			TokenTotals(
+				inputTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.inputTokensOrZero() },
+				outputTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.expandedOutputTokensOrZero() },
+				cachedTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.cachedTokensOrZero() },
+			)
+		)
+	}
+
+	private fun restoredSession(snapshot: SessionSnapshot): Result<Session> {
 		val sandbox = restoredSandbox(snapshot.sandbox).getOrElse { return Result.failure(it) }
+		val ownerPlayerId = snapshot.ownerPlayerId?.let(UUID::fromString)
 		val session = Session(
 			id = UUID.fromString(snapshot.sessionId),
-			ownerPlayerId = UUID.fromString(snapshot.ownerPlayerId),
+			ownerPlayerId = ownerPlayerId,
+			storagePath = ownerPlayerId?.let(::playerStoragePath) ?: snapshot.storagePath,
 			systemPrompt = snapshot.systemPrompt,
 			boundPlayerId = snapshot.boundPlayerId?.let(UUID::fromString),
+			toolScopeId = snapshot.toolScopeId?.let(UUID::fromString) ?: UUID.fromString(snapshot.sessionId),
+			builtInPromptSections = snapshot.builtInPromptSections.ifEmpty {
+				listOf(
+					me.wanttobee.openblock.ai.context.KnowledgeBase.OPENBLOCK_IDENTITY,
+					me.wanttobee.openblock.ai.context.KnowledgeBase.REDSTONE_DIRECTION_DETAILS,
+				)
+			},
 			persisted = true,
 			initialEnabledToolNames = snapshot.enabledTools.toSet(),
 			initialAllowedCommandNames = snapshot.allowedCommands.toSet(),
@@ -154,25 +200,21 @@ object SessionLogger {
 		return Result.success(session)
 	}
 
-	fun deleteSession(ownerPlayerId: UUID, sessionId: UUID): Result<Unit> {
-		return runCatching {
-			Files.deleteIfExists(logFile(ownerPlayerId, sessionId))
-			Unit
-		}
-	}
-
 	@Synchronized
 	private fun update(session: Session, mutate: (SessionSnapshot) -> Unit) {
-		val snapshot = readSnapshot(logFile(session.ownerPlayerId, session.id)) ?: createSnapshot(session)
-		snapshot.ownerPlayerId = session.ownerPlayerId.toString()
+		val snapshot = readSnapshot(logFile(session.storagePath, session.id)) ?: createSnapshot(session)
+		snapshot.ownerPlayerId = session.ownerPlayerId?.toString()
+		snapshot.storagePath = session.storagePath
 		snapshot.boundPlayerId = session.boundPlayerId?.toString()
+		snapshot.toolScopeId = session.toolScopeId.toString()
+		snapshot.builtInPromptSections = session.builtInPromptSections.toMutableList()
 		snapshot.systemPrompt = session.systemPrompt
 		snapshot.updatedAt = timestamp()
 		snapshot.sandbox = persistedSandbox(session.sandbox())
 		snapshot.enabledTools = session.enabledToolNames().sorted().toMutableList()
 		snapshot.allowedCommands = session.allowedCommandNames().sorted().toMutableList()
 		mutate(snapshot)
-		write(session.ownerPlayerId, session.id, snapshot)
+		write(session.storagePath, session.id, snapshot)
 	}
 
 	private fun createSnapshot(session: Session): SessionSnapshot {
@@ -180,8 +222,11 @@ object SessionLogger {
 		return SessionSnapshot(
 			version = 5,
 			sessionId = session.id.toString(),
-			ownerPlayerId = session.ownerPlayerId.toString(),
+			ownerPlayerId = session.ownerPlayerId?.toString(),
+			storagePath = session.storagePath,
 			boundPlayerId = session.boundPlayerId?.toString(),
+			toolScopeId = session.toolScopeId.toString(),
+			builtInPromptSections = session.builtInPromptSections.toMutableList(),
 			systemPrompt = session.systemPrompt,
 			startedAt = now,
 			updatedAt = now,
@@ -292,8 +337,8 @@ object SessionLogger {
 		return BlockPos(position.x, position.y, position.z)
 	}
 
-	private fun write(ownerPlayerId: UUID, sessionId: UUID, snapshot: SessionSnapshot) {
-		val directory = ownerDirectory(ownerPlayerId) ?: return
+	private fun write(storagePath: String, sessionId: UUID, snapshot: SessionSnapshot) {
+		val directory = storageDirectory(storagePath) ?: return
 		Files.createDirectories(directory)
 		Files.writeString(
 			logFile(directory, sessionId),
@@ -317,14 +362,17 @@ object SessionLogger {
 		}.getOrNull()
 	}
 
-	private fun ownerDirectory(ownerPlayerId: UUID): Path? {
+	private fun storageDirectory(storagePath: String): Path? {
 		val server = OpenBlock.currentServer().getOrNull() ?: return null
-		return server.getFile(LOG_DIR).resolve(ownerPlayerId.toString())
+		return normalizedStoragePath(storagePath)
+			.fold(server.getFile(LOG_DIR)) { current, segment -> current.resolve(segment) }
 	}
 
-	private fun logFile(ownerPlayerId: UUID, sessionId: UUID): Path {
-		return ownerDirectory(ownerPlayerId)?.let { directory -> logFile(directory, sessionId) }
-			?: Path.of(LOG_DIR, ownerPlayerId.toString(), "$sessionId.json")
+	private fun logFile(storagePath: String, sessionId: UUID): Path {
+		return storageDirectory(storagePath)?.let { directory -> logFile(directory, sessionId) }
+			?: normalizedStoragePath(storagePath)
+				.fold(Path.of(LOG_DIR)) { current, segment -> current.resolve(segment) }
+				.resolve("$sessionId.json")
 	}
 
 	private fun logFile(directory: Path, sessionId: UUID): Path {
@@ -333,11 +381,54 @@ object SessionLogger {
 
 	private fun timestamp(): String = OffsetDateTime.now().format(timestampFormatter)
 
+	internal fun playerStoragePath(ownerPlayerId: UUID): String {
+		return "$PLAYER_SCOPE_PREFIX/$ownerPlayerId"
+	}
+
+	private fun normalizedStoragePath(storagePath: String): List<String> {
+		return storagePath.split('/')
+			.map(String::trim)
+			.filter(String::isNotBlank)
+			.map { segment ->
+				segment.replace(Regex("[^a-zA-Z0-9_.-]"), "_")
+			}
+			.ifEmpty { listOf("unscoped") }
+	}
+
+	private fun migrateLegacyPlayerSessions(ownerPlayerId: UUID): Result<Unit> {
+		val legacyDirectory = storageDirectory(ownerPlayerId.toString())
+			?: return Result.failure(IllegalStateException("Minecraft server is not available."))
+		if (!Files.isDirectory(legacyDirectory)) {
+			return Result.success(Unit)
+		}
+
+		val targetDirectory = storageDirectory(playerStoragePath(ownerPlayerId))
+			?: return Result.failure(IllegalStateException("Minecraft server is not available."))
+		return runCatching {
+			Files.createDirectories(targetDirectory)
+			Files.list(legacyDirectory).use { files ->
+				files
+					.filter { path -> Files.isRegularFile(path) && path.fileName.toString().endsWith(".json") }
+					.forEach { legacyFile ->
+						val targetFile = targetDirectory.resolve(legacyFile.fileName.toString())
+						if (!Files.exists(targetFile)) {
+							Files.move(legacyFile, targetFile)
+						}
+					}
+			}
+			Files.deleteIfExists(legacyDirectory)
+			Unit
+		}
+	}
+
 	private data class SessionSnapshot(
 		val version: Int,
 		val sessionId: String,
-		var ownerPlayerId: String,
+		var ownerPlayerId: String?,
+		var storagePath: String,
 		var boundPlayerId: String?,
+		var toolScopeId: String? = null,
+		var builtInPromptSections: MutableList<String> = mutableListOf(),
 		var systemPrompt: String?,
 		val startedAt: String,
 		var updatedAt: String,
@@ -404,4 +495,27 @@ object SessionLogger {
 		val y: Int,
 		val z: Int,
 	)
+
+	data class TokenTotals(
+		val inputTokens: Long = 0,
+		val outputTokens: Long = 0,
+		val cachedTokens: Long = 0,
+	)
+
+	private fun SessionTokenUsage?.inputTokensOrZero(): Long {
+		return this?.inputTokens ?: 0
+	}
+
+	private fun SessionTokenUsage?.expandedOutputTokensOrZero(): Long {
+		return (this?.outputTokens ?: 0) +
+			(this?.reasoningTokens ?: 0) +
+			(this?.thoughtsTokens ?: 0) +
+			(this?.toolUsePromptTokens ?: 0)
+	}
+
+	private fun SessionTokenUsage?.cachedTokensOrZero(): Long {
+		return (this?.cachedInputTokens ?: 0) +
+			(this?.cacheCreationInputTokens ?: 0) +
+			(this?.cacheReadInputTokens ?: 0)
+	}
 }

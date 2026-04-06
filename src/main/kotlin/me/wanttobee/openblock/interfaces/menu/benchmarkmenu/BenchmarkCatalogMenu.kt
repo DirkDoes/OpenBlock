@@ -2,6 +2,7 @@ package me.wanttobee.openblock.interfaces.menu.benchmarkmenu
 
 import me.wanttobee.openblock.benchmarking.BenchmarkCatalogManager
 import me.wanttobee.openblock.benchmarking.BenchmarkPresetManager
+import me.wanttobee.openblock.benchmarking.BenchmarkTagManager
 import me.wanttobee.openblock.interfaces.menu.MenuItems
 import me.wanttobee.openblock.interfaces.menu.base.BaseListMenu
 import net.minecraft.ChatFormatting
@@ -90,6 +91,13 @@ internal class BenchmarkCatalogMenu(
 		broadcastChanges()
 	}
 
+	override fun hasDeselectableSelection(): Boolean = selectedStoredName != null && movingStoredName == null
+
+	override fun clearSelection() {
+		selectedStoredName = null
+		refreshMenu()
+	}
+
 	private fun addCatalogFooter(entries: List<BenchmarkCatalogManager.CatalogEntry>) {
 		addPageNavigation(entries.size) { player ->
 			if (movingStoredName != null) {
@@ -110,7 +118,7 @@ internal class BenchmarkCatalogMenu(
 			setButton(
 				footerLeftOuterSlot,
 				MenuItems.menuItem(
-					item = Items.WHITE_SHULKER_BOX,
+					item = Items.LIME_SHULKER_BOX,
 					name = Component.literal("Add Folder").withStyle(ChatFormatting.YELLOW),
 				),
 			) { player, button, input ->
@@ -122,12 +130,12 @@ internal class BenchmarkCatalogMenu(
 				footerLeftInnerSlot,
 				if (hasCurrentSandbox) {
 					MenuItems.menuItem(
-						item = Items.IRON_INGOT,
+						item = Items.LIME_CANDLE,
 						name = Component.literal("Add Benchmark").withStyle(ChatFormatting.YELLOW),
 					)
 				} else {
 					MenuItems.menuItem(
-						item = Items.IRON_NUGGET,
+						item = Items.LIGHT_GRAY_CANDLE,
 						name = Component.literal("You did not create a sandbox").withStyle(ChatFormatting.RED),
 						lore = listOf(Component.literal("Create a sandbox before saving a benchmark preset.").withStyle(ChatFormatting.GRAY)),
 					)
@@ -315,9 +323,9 @@ internal class BenchmarkCatalogMenu(
 			entry.kind == BenchmarkCatalogManager.EntryKind.FOLDER && moving -> Items.YELLOW_SHULKER_BOX
 			entry.kind == BenchmarkCatalogManager.EntryKind.FOLDER && selected -> Items.ORANGE_SHULKER_BOX
 			entry.kind == BenchmarkCatalogManager.EntryKind.FOLDER -> Items.WHITE_SHULKER_BOX
-			moving -> Items.GOLD_INGOT
-			selected -> Items.RESIN_BRICK
-			else -> Items.IRON_INGOT
+			moving -> Items.YELLOW_CANDLE
+			selected -> Items.ORANGE_CANDLE
+			else -> Items.WHITE_CANDLE
 		},
 		name = Component.literal(entry.displayName).withStyle(ChatFormatting.YELLOW),
 		lore = if (entry.kind == BenchmarkCatalogManager.EntryKind.FOLDER) {
@@ -347,6 +355,13 @@ internal class BenchmarkCatalogMenu(
 
 	private fun presetLore(entry: BenchmarkCatalogManager.CatalogEntry): List<Component> {
 		val metadata = BenchmarkPresetManager.metadata(pathSegments, entry).getOrNull()
+		val tagNames = BenchmarkPresetManager.selectedTagIds(pathSegments, entry).getOrNull()
+			?.let { selectedTagIds ->
+				BenchmarkTagManager.listTags().getOrNull()
+					?.filter { tag -> tag.id in selectedTagIds }
+					?.sortedBy { tag -> tag.name.lowercase() }
+					?.map { tag -> tag.name }
+			}
 		if (metadata == null) {
 			return listOf(
 				Component.literal("size: unavailable").withStyle(ChatFormatting.GRAY),
@@ -357,6 +372,8 @@ internal class BenchmarkCatalogMenu(
 		return listOf(
 			Component.literal("size: ${metadata.sizeX} x ${metadata.sizeY} x ${metadata.sizeZ}").withStyle(ChatFormatting.GRAY),
 			Component.literal("summary: ${metadata.summary.ifBlank { "none" }}").withStyle(ChatFormatting.GRAY),
+			Component.literal("tags: ${tagNames?.takeIf(List<String>::isNotEmpty)?.joinToString(" ● ") ?: "none"}").withStyle(ChatFormatting.GRAY),
+			Component.literal("validation: ${metadata.postValidation}").withStyle(ChatFormatting.GRAY),
 		)
 	}
 }

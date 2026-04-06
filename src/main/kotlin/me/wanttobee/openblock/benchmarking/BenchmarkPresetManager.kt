@@ -4,6 +4,7 @@ import com.google.gson.GsonBuilder
 import com.google.gson.annotations.SerializedName
 import me.wanttobee.openblock.OpenBlock
 import me.wanttobee.openblock.ai.AiService
+import me.wanttobee.openblock.ai.sessions.Session
 import me.wanttobee.openblock.sandbox.Sandbox
 import me.wanttobee.openblock.sandbox.SandboxFloorBuilder
 import net.minecraft.core.BlockPos
@@ -15,6 +16,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.Container
 import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
+import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
 import java.util.UUID
 
@@ -41,7 +43,7 @@ object BenchmarkPresetManager {
 
 	fun createPreset(playerId: UUID, pathSegments: List<String>, rawName: String): Result<BenchmarkCatalogManager.CatalogEntry> {
 		val document = captureCurrentPreset(playerId)
-			.map { preset -> preset.copy(name = rawName) }
+			.map { preset -> preset.copy(name = rawName, summary = rawName) }
 			.getOrElse { return Result.failure(it) }
 		return BenchmarkCatalogManager.createPreset(pathSegments, rawName, gson.toJson(document) + "\n")
 	}
@@ -56,6 +58,7 @@ object BenchmarkPresetManager {
 				tagIds = preset.normalizedTagIds(),
 				summary = preset.normalizedSummary(),
 				task = preset.normalizedTask(),
+				postValidation = preset.normalizedPostValidation(),
 				targetDefinitions = preset.normalizedTargetDefinitions(),
 			)
 		}.getOrDefault(ExistingPresetMetadata())
@@ -66,6 +69,7 @@ object BenchmarkPresetManager {
 					tagIds = existingMetadata.tagIds,
 					summary = existingMetadata.summary,
 					task = existingMetadata.task,
+					postValidation = existingMetadata.postValidation,
 					targetDefinitions = existingMetadata.targetDefinitions,
 				)
 			}
@@ -82,6 +86,18 @@ object BenchmarkPresetManager {
 		}
 	}
 
+	fun acceptedToolNames(
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+	): Result<Set<String>> {
+		return loadPreset(pathSegments, entry).map { preset ->
+			preset.acceptedToolCalls
+				.map(String::trim)
+				.filter(String::isNotBlank)
+				.toSet()
+		}
+	}
+
 	fun updateSelectedTagIds(
 		pathSegments: List<String>,
 		entry: BenchmarkCatalogManager.CatalogEntry,
@@ -90,6 +106,33 @@ object BenchmarkPresetManager {
 		val updatedPreset = loadPreset(pathSegments, entry)
 			.map { preset ->
 				preset.copy(tagIds = selectedTagIds.toList().distinct().sorted())
+			}
+			.getOrElse { return Result.failure(it) }
+		return BenchmarkCatalogManager.overwritePreset(pathSegments, entry, gson.toJson(updatedPreset) + "\n")
+	}
+
+	fun setToolEnabled(
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		toolName: String,
+		enabled: Boolean,
+	): Result<BenchmarkCatalogManager.CatalogEntry> {
+		val updatedPreset = loadPreset(pathSegments, entry)
+			.map { preset ->
+				val updatedTools = if (enabled) {
+					(preset.acceptedToolCalls + toolName).map(String::trim)
+						.filter(String::isNotBlank)
+						.distinct()
+						.sorted()
+				} else {
+					preset.acceptedToolCalls
+						.filterNot { acceptedTool -> acceptedTool.equals(toolName, ignoreCase = true) }
+						.map(String::trim)
+						.filter(String::isNotBlank)
+						.distinct()
+						.sorted()
+				}
+				preset.copy(acceptedToolCalls = updatedTools)
 			}
 			.getOrElse { return Result.failure(it) }
 		return BenchmarkCatalogManager.overwritePreset(pathSegments, entry, gson.toJson(updatedPreset) + "\n")
@@ -106,6 +149,7 @@ object BenchmarkPresetManager {
 				sizeZ = preset.relativeSandbox.boundary.sizeZ(),
 				summary = preset.normalizedSummary(),
 				task = preset.normalizedTask(),
+				postValidation = preset.normalizedPostValidation(),
 			)
 		}
 	}
@@ -132,6 +176,25 @@ object BenchmarkPresetManager {
 		return BenchmarkCatalogManager.overwritePreset(pathSegments, entry, gson.toJson(updatedPreset) + "\n")
 	}
 
+	fun postValidation(
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+	): Result<String> {
+		return loadPreset(pathSegments, entry).map(PersistedPreset::normalizedPostValidation)
+	}
+
+	fun updatePostValidation(
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		postValidation: String,
+	): Result<BenchmarkCatalogManager.CatalogEntry> {
+		val normalized = normalizePostValidation(postValidation)
+		val updatedPreset = loadPreset(pathSegments, entry)
+			.map { preset -> preset.copy(postValidation = normalized) }
+			.getOrElse { return Result.failure(it) }
+		return BenchmarkCatalogManager.overwritePreset(pathSegments, entry, gson.toJson(updatedPreset) + "\n")
+	}
+
 	fun targets(
 		pathSegments: List<String>,
 		entry: BenchmarkCatalogManager.CatalogEntry,
@@ -143,6 +206,33 @@ object BenchmarkPresetManager {
 					description = target.normalizedDescription(),
 				)
 			}
+		}
+	}
+
+	fun runDefinition(
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+	): Result<PresetRunDefinition> {
+		return loadPreset(pathSegments, entry).map { preset ->
+			PresetRunDefinition(
+				task = preset.normalizedTask(),
+				postValidation = preset.normalizedPostValidation(),
+				acceptedToolNames = preset.acceptedToolCalls.distinct().sorted(),
+				relativeBounds = RelativeBounds(
+					minX = minOf(preset.relativeSandbox.boundary.firstCorner.x, preset.relativeSandbox.boundary.secondCorner.x),
+					minY = minOf(preset.relativeSandbox.boundary.firstCorner.y, preset.relativeSandbox.boundary.secondCorner.y),
+					minZ = minOf(preset.relativeSandbox.boundary.firstCorner.z, preset.relativeSandbox.boundary.secondCorner.z),
+					maxX = maxOf(preset.relativeSandbox.boundary.firstCorner.x, preset.relativeSandbox.boundary.secondCorner.x),
+					maxY = maxOf(preset.relativeSandbox.boundary.firstCorner.y, preset.relativeSandbox.boundary.secondCorner.y),
+					maxZ = maxOf(preset.relativeSandbox.boundary.firstCorner.z, preset.relativeSandbox.boundary.secondCorner.z),
+				),
+				targets = preset.normalizedTargetDefinitions().map { target ->
+					PresetTargetEntry(
+						key = target.key,
+						description = target.normalizedDescription(),
+					)
+				},
+			)
 		}
 	}
 
@@ -267,15 +357,28 @@ object BenchmarkPresetManager {
 		val server = OpenBlock.currentServer().getOrElse { return Result.failure(it) }
 		val player = server.playerList.getPlayer(playerId)
 			?: return Result.failure(NoSuchElementException("Player is not online: $playerId"))
-		val preset = loadPreset(pathSegments, entry).getOrElse { return Result.failure(it) }
-		val level = player.level()
-		val anchor = player.blockPosition().immutable()
-		val resolvedBuild = resolveBuildStates(preset.build.orEmpty()).getOrElse { return Result.failure(it) }
-		val sandbox = applySandbox(playerId, level, anchor, preset.relativeSandbox).getOrElse { return Result.failure(it) }
+		return placePresetAtScope(playerId, player.level(), player.blockPosition().immutable(), pathSegments, entry)
+	}
 
+	fun placePresetAtScope(
+		scopeId: UUID,
+		level: ServerLevel,
+		anchor: BlockPos,
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+	): Result<AppliedPresetSummary> {
+		if (entry.kind != BenchmarkCatalogManager.EntryKind.PRESET) {
+			return Result.failure(IllegalArgumentException("Only benchmark presets can be placed."))
+		}
+
+		val preset = loadPreset(pathSegments, entry).getOrElse { return Result.failure(it) }
+		val resolvedBuild = resolveBuildStates(preset.build.orEmpty()).getOrElse { return Result.failure(it) }
+		val sandbox = applySandbox(scopeId, level, anchor, preset.relativeSandbox).getOrElse { return Result.failure(it) }
+
+		clearSandboxBuildArea(level, sandbox).getOrElse { return Result.failure(it) }
 		SandboxFloorBuilder.placeFloor(level, sandbox).getOrElse { return Result.failure(it) }
 		placeBuild(level, anchor, resolvedBuild).getOrElse { return Result.failure(it) }
-		applyAcceptedToolCalls(playerId, preset.acceptedToolCalls)
+		applyAcceptedToolCalls(scopeId, preset.acceptedToolCalls)
 
 		return Result.success(
 			AppliedPresetSummary(
@@ -283,6 +386,96 @@ object BenchmarkPresetManager {
 				acceptedToolCallCount = preset.acceptedToolCalls.size,
 				exclusionCount = preset.relativeSandbox.exclusions.size,
 				targetCount = preset.relativeSandbox.targets.size,
+				sandboxDescription = absoluteBoundaryDescription(anchor, preset.relativeSandbox.boundary),
+			)
+		)
+	}
+
+	fun captureSessionResult(session: Session): Result<SessionRunCapture> {
+		val sandbox = session.sandbox() ?: return Result.failure(NoSuchElementException("No active sandbox."))
+		val server = OpenBlock.currentServer().getOrElse { return Result.failure(it) }
+		val level = server.getLevel(sandbox.dimension)
+			?: return Result.failure(IllegalStateException("Sandbox dimension is not currently loaded."))
+		val origin = sandbox.minCorner()
+		val buildBlocks = captureBuild(level, sandbox, origin)
+
+		return Result.success(
+			SessionRunCapture(
+				sandboxDescription = sandbox.promptDescription(),
+				targets = sandbox.targets
+					.map { (name, position) ->
+						CapturedTarget(
+							key = name,
+							position = relativeCapturePosition(origin, position),
+						)
+					}
+					.sortedBy(CapturedTarget::key),
+				build = buildBlocks.map { block ->
+					CapturedBuildBlock(
+						position = relativeCapturePosition(block.position),
+						blockId = block.blockId,
+						properties = block.properties,
+						entries = block.entries.orEmpty().map { entry ->
+							CapturedContainerEntry(
+								slot = entry.slot,
+								item = entry.item,
+								count = entry.count,
+							)
+						},
+					)
+				},
+			)
+		)
+	}
+
+	fun cleanupSessionSandbox(session: Session): Result<Unit> {
+		val sandbox = session.sandbox() ?: return Result.success(Unit)
+		val server = OpenBlock.currentServer().getOrElse { return Result.failure(it) }
+		val level = server.getLevel(sandbox.dimension)
+			?: return Result.failure(IllegalStateException("Sandbox dimension is not currently loaded."))
+		clearSandboxBuildArea(level, sandbox).getOrElse { return Result.failure(it) }
+		return SandboxFloorBuilder.clearFloor(level, sandbox)
+	}
+
+	fun placeCapturedRunHere(
+		playerId: UUID,
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		build: List<CapturedBuildBlock>,
+		targets: List<CapturedTarget>,
+	): Result<AppliedPresetSummary> {
+		if (entry.kind != BenchmarkCatalogManager.EntryKind.PRESET) {
+			return Result.failure(IllegalArgumentException("Only benchmark presets can be placed."))
+		}
+
+		val server = OpenBlock.currentServer().getOrElse { return Result.failure(it) }
+		val player = server.playerList.getPlayer(playerId)
+			?: return Result.failure(NoSuchElementException("Player is not online: $playerId"))
+		val preset = loadPreset(pathSegments, entry).getOrElse { return Result.failure(it) }
+		val level = player.level()
+		val anchor = player.blockPosition().immutable()
+		val resolvedBuild = resolveCapturedBuildStates(build).getOrElse { return Result.failure(it) }
+		val sandbox = applySandbox(playerId, level, anchor, preset.relativeSandbox).getOrElse { return Result.failure(it) }
+
+		clearSandboxBuildArea(level, sandbox).getOrElse { return Result.failure(it) }
+		SandboxFloorBuilder.placeFloor(level, sandbox).getOrElse { return Result.failure(it) }
+		placeBuild(level, anchor, resolvedBuild).getOrElse { return Result.failure(it) }
+		AiService.clearSandboxTargets(playerId).getOrElse { return Result.failure(it) }
+		for (target in targets) {
+			AiService.addSandboxTarget(
+				playerId,
+				level.dimension(),
+				target.key,
+				absolutePosition(anchor, target.position),
+			).getOrElse { return Result.failure(it) }
+		}
+
+		return Result.success(
+			AppliedPresetSummary(
+				placedBlockCount = resolvedBuild.size,
+				acceptedToolCallCount = preset.acceptedToolCalls.size,
+				exclusionCount = preset.relativeSandbox.exclusions.size,
+				targetCount = targets.size,
 				sandboxDescription = absoluteBoundaryDescription(anchor, preset.relativeSandbox.boundary),
 			)
 		)
@@ -383,6 +576,22 @@ object BenchmarkPresetManager {
 		)
 	}
 
+	private fun relativeCapturePosition(origin: BlockPos, absolute: BlockPos): CapturedRelativePosition {
+		return CapturedRelativePosition(
+			x = absolute.x - origin.x,
+			y = absolute.y - origin.y,
+			z = absolute.z - origin.z,
+		)
+	}
+
+	private fun relativeCapturePosition(position: PersistedRelativePosition): CapturedRelativePosition {
+		return CapturedRelativePosition(
+			x = position.x,
+			y = position.y,
+			z = position.z,
+		)
+	}
+
 	private fun blockProperties(blockState: BlockState): Map<String, String> {
 		return blockState.values
 			.toList()
@@ -405,6 +614,28 @@ object BenchmarkPresetManager {
 					position = block.position,
 					blockSpec = blockSpec(block.blockId, block.properties).getOrThrow(),
 					entries = resolveContainerEntries(block.entries.orEmpty()).getOrThrow(),
+				)
+			}
+		}
+	}
+
+	private fun resolveCapturedBuildStates(build: List<CapturedBuildBlock>): Result<List<ResolvedRelativeBlock>> {
+		return runCatching {
+			build.map { block ->
+				ResolvedRelativeBlock(
+					position = PersistedRelativePosition(
+						x = block.position.x,
+						y = block.position.y,
+						z = block.position.z,
+					),
+					blockSpec = blockSpec(block.blockId, block.properties).getOrThrow(),
+					entries = block.entries.map { entry ->
+						ResolvedContainerEntry(
+							slot = entry.slot,
+							item = resolveItem(entry.item).getOrThrow(),
+							count = validateItemCount(resolveItem(entry.item).getOrThrow(), entry.item, entry.count).getOrThrow(),
+						)
+					},
 				)
 			}
 		}
@@ -471,43 +702,76 @@ object BenchmarkPresetManager {
 		}
 	}
 
+	private fun clearSandboxBuildArea(level: ServerLevel, sandbox: Sandbox): Result<Unit> {
+		val minCorner = sandbox.minCorner()
+		val maxCorner = sandbox.maxCorner()
+		for (y in minCorner.y..maxCorner.y) {
+			for (z in minCorner.z..maxCorner.z) {
+				for (x in minCorner.x..maxCorner.x) {
+					val position = BlockPos(x, y, z)
+					val existingState = level.getBlockState(position)
+					if (existingState.isAir) {
+						continue
+					}
+
+					val cleared = level.setBlock(position, Blocks.AIR.defaultBlockState(), 3) ||
+						(run {
+							level.destroyBlock(position, false)
+							level.setBlock(position, Blocks.AIR.defaultBlockState(), 3)
+						})
+					if (!cleared && !level.getBlockState(position).isAir) {
+						return Result.failure(
+							IllegalStateException("Unable to clear sandbox block at [${position.x}, ${position.y}, ${position.z}].")
+						)
+					}
+				}
+			}
+		}
+		return Result.success(Unit)
+	}
+
 	private fun applySandbox(
-		playerId: UUID,
+		scopeId: UUID,
 		level: ServerLevel,
 		anchor: BlockPos,
 		relativeSandbox: PersistedRelativeSandbox,
 	): Result<Sandbox> {
 		val firstCorner = absolutePosition(anchor, relativeSandbox.boundary.firstCorner)
 		val secondCorner = absolutePosition(anchor, relativeSandbox.boundary.secondCorner)
-		return AiService.setSandbox(playerId, level.dimension(), firstCorner, secondCorner)
+		return AiService.setSandboxForScope(scopeId, level.dimension(), firstCorner, secondCorner)
 			.mapCatching {
 				for (entry in relativeSandbox.exclusions) {
-					AiService.addSandboxExclusion(
-						playerId,
+					AiService.addSandboxExclusionForScope(
+						scopeId,
 						level.dimension(),
 						entry.name,
 						absolutePosition(anchor, entry.position),
 					).getOrThrow()
 				}
 				for (entry in relativeSandbox.targets) {
-					AiService.addSandboxTarget(
-						playerId,
+					AiService.addSandboxTargetForScope(
+						scopeId,
 						level.dimension(),
 						entry.name,
 						absolutePosition(anchor, entry.position),
 					).getOrThrow()
 				}
-				AiService.currentSandbox(playerId).getOrThrow()
+				AiService.currentSandboxForScope(scopeId)
+					?: error("Preset sandbox was not available after applying it.")
 			}
 	}
 
-	private fun applyAcceptedToolCalls(playerId: UUID, acceptedToolCalls: List<String>) {
+	private fun applyAcceptedToolCalls(scopeId: UUID, acceptedToolCalls: List<String>) {
+		val session = me.wanttobee.openblock.ai.sessions.AiSessionManager.sessionForScope(scopeId).getOrNull() ?: return
 		val acceptedToolNames = acceptedToolCalls
 			.map(String::lowercase)
 			.toSet()
-		for (tool in AiService.allTools()) {
-			AiService.setToolEnabled(playerId, tool.name, tool.name.lowercase() in acceptedToolNames)
-		}
+		session.restoreToolState(
+			AiService.allTools()
+				.filter { tool -> tool.name.lowercase() in acceptedToolNames }
+				.mapTo(linkedSetOf()) { tool -> tool.name }
+		)
+		me.wanttobee.openblock.ai.sessions.AiSessionManager.updateSession(session)
 	}
 
 	private fun absoluteBoundaryDescription(anchor: BlockPos, boundary: PersistedRelativeRegion): String {
@@ -517,6 +781,10 @@ object BenchmarkPresetManager {
 	}
 
 	private fun absolutePosition(anchor: BlockPos, relative: PersistedRelativePosition): BlockPos {
+		return BlockPos(anchor.x + relative.x, anchor.y + relative.y, anchor.z + relative.z)
+	}
+
+	private fun absolutePosition(anchor: BlockPos, relative: CapturedRelativePosition): BlockPos {
 		return BlockPos(anchor.x + relative.x, anchor.y + relative.y, anchor.z + relative.z)
 	}
 
@@ -637,11 +905,59 @@ object BenchmarkPresetManager {
 		val sizeZ: Int,
 		val summary: String,
 		val task: String,
+		val postValidation: String,
 	)
 
 	data class PresetTargetEntry(
 		val key: String,
 		val description: String,
+	)
+
+	data class PresetRunDefinition(
+		val task: String,
+		val postValidation: String,
+		val acceptedToolNames: List<String>,
+		val relativeBounds: RelativeBounds,
+		val targets: List<PresetTargetEntry>,
+	)
+
+	data class RelativeBounds(
+		val minX: Int,
+		val minY: Int,
+		val minZ: Int,
+		val maxX: Int,
+		val maxY: Int,
+		val maxZ: Int,
+	)
+
+	data class SessionRunCapture(
+		val sandboxDescription: String,
+		val targets: List<CapturedTarget>,
+		val build: List<CapturedBuildBlock>,
+	)
+
+	data class CapturedTarget(
+		val key: String,
+		val position: CapturedRelativePosition,
+	)
+
+	data class CapturedBuildBlock(
+		val position: CapturedRelativePosition,
+		val blockId: String,
+		val properties: Map<String, String>,
+		val entries: List<CapturedContainerEntry>,
+	)
+
+	data class CapturedContainerEntry(
+		val slot: Int,
+		val item: String,
+		val count: Int,
+	)
+
+	data class CapturedRelativePosition(
+		val x: Int,
+		val y: Int,
+		val z: Int,
 	)
 
 	private data class PersistedPreset(
@@ -653,6 +969,7 @@ object BenchmarkPresetManager {
 		val task: String? = "",
 		@SerializedName(value = "targets", alternate = ["targetDefinitions"])
 		val targetDefinitions: List<PersistedTargetDefinition>? = emptyList(),
+		val postValidation: String? = "manual",
 		val relativeSandbox: PersistedRelativeSandbox,
 		val build: List<PersistedRelativeBlock>? = null,
 	) {
@@ -666,6 +983,8 @@ object BenchmarkPresetManager {
 		fun normalizedSummary(): String = summary?.trim().orEmpty()
 
 		fun normalizedTask(): String = task?.trim().orEmpty()
+
+		fun normalizedPostValidation(): String = normalizePostValidation(postValidation)
 
 		fun normalizedTargetDefinitions(): List<PersistedTargetDefinition> {
 			val normalizedTargets = linkedMapOf<String, PersistedTargetDefinition>()
@@ -746,6 +1065,14 @@ object BenchmarkPresetManager {
 		val tagIds: List<String> = emptyList(),
 		val summary: String = "",
 		val task: String = "",
+		val postValidation: String = "manual",
 		val targetDefinitions: List<PersistedTargetDefinition> = emptyList(),
 	)
+
+	private fun normalizePostValidation(rawValue: String?): String {
+		return when (rawValue?.trim()?.lowercase()) {
+			"manual" -> "manual"
+			else -> "manual"
+		}
+	}
 }

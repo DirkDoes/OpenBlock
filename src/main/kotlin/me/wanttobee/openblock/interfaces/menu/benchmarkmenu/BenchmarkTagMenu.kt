@@ -71,6 +71,13 @@ internal class BenchmarkTagMenu(
 		broadcastChanges()
 	}
 
+	override fun hasDeselectableSelection(): Boolean = selectedTagId != null
+
+	override fun clearSelection() {
+		selectedTagId = null
+		refreshMenu()
+	}
+
 	private fun addTagFooter(tags: List<BenchmarkTagManager.TagEntry>) {
 		addPageNavigation(tags.size) { player ->
 			BenchmarkMenu.openMain(player)

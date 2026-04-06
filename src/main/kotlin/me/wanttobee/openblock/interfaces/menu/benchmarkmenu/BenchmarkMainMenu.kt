@@ -1,5 +1,6 @@
 package me.wanttobee.openblock.interfaces.menu.benchmarkmenu
 
+import me.wanttobee.openblock.benchmarking.BenchmarkRunsManager
 import me.wanttobee.openblock.interfaces.menu.MenuItems
 import me.wanttobee.openblock.interfaces.menu.base.BaseHopperMenu
 import net.minecraft.ChatFormatting
@@ -22,11 +23,10 @@ internal class BenchmarkMainMenu(
 	override fun tick(player: ServerPlayer, tick: Long) = Unit
 
 	private fun refreshMenu() {
+		val settings = BenchmarkRunsManager.settings().getOrElse { BenchmarkRunsManager.Settings() }
 		resetMenu()
-		setDisplayItem(0, MenuItems.blockedPaneItem())
-		setDisplayItem(4, MenuItems.blockedPaneItem())
 		setButton(
-			1,
+			0,
 			MenuItems.menuItem(
 				item = Items.OXIDIZED_COPPER_CHEST,
 				name = Component.literal("Tag").withStyle(ChatFormatting.YELLOW),
@@ -38,7 +38,7 @@ internal class BenchmarkMainMenu(
 			}
 		}
 		setButton(
-			2,
+			1,
 			MenuItems.menuItem(
 				item = Items.CHEST,
 				name = Component.literal("Benchmark Catalog").withStyle(ChatFormatting.YELLOW),
@@ -50,16 +50,51 @@ internal class BenchmarkMainMenu(
 			}
 		}
 		setButton(
-			3,
+			2,
 			MenuItems.menuItem(
 				item = Items.ENDER_CHEST,
 				name = Component.literal("Runs").withStyle(ChatFormatting.YELLOW),
-				lore = listOf(Component.literal("Benchmark runs are not implemented yet.").withStyle(ChatFormatting.GRAY)),
+				lore = listOf(Component.literal("Open the benchmark run overview.").withStyle(ChatFormatting.GRAY)),
 			),
 		) { player, button, input ->
 			if (button == 0 && input == ContainerInput.PICKUP) {
-				player.sendSystemMessage(Component.literal("Benchmark runs are not implemented yet.").withStyle(ChatFormatting.GRAY))
+				BenchmarkMenu.openRuns(player)
 			}
+		}
+		setDisplayItem(3, MenuItems.blockedPaneItem())
+		setButton(
+			4,
+			MenuItems.menuItem(
+				item = Items.REPEATER,
+				name = Component.literal("Max Runs").withStyle(ChatFormatting.YELLOW),
+				lore = listOf(
+					Component.literal("current: ${settings.maxRuns}").withStyle(ChatFormatting.GRAY),
+					Component.literal("Left click to increase.").withStyle(ChatFormatting.GRAY),
+					Component.literal("Right click to decrease.").withStyle(ChatFormatting.GRAY),
+				),
+				count = settings.maxRuns,
+			),
+		) { player, button, input ->
+			if (input != ContainerInput.PICKUP) {
+				return@setButton
+			}
+
+			val delta = when (button) {
+				0 -> 1
+				1 -> -1
+				else -> return@setButton
+			}
+
+			BenchmarkRunsManager.adjustMaxRuns(delta)
+				.onSuccess {
+					refreshMenu()
+				}
+				.onFailure { error ->
+					player.sendSystemMessage(
+						Component.literal(error.message ?: "Unable to update benchmark max runs.").withStyle(ChatFormatting.RED),
+					)
+					refreshMenu()
+				}
 		}
 		broadcastChanges()
 	}

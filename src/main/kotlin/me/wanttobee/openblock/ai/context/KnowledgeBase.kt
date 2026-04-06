@@ -26,4 +26,11 @@ object KnowledgeBase {
 			"- When issuing multiple placement calls, order them by dependency: place supporting blocks first and dependent blocks later. For example, place the block under redstone wire before placing the redstone_wire itself.\n" +
 			"- after Interaction, Because redstone interactions can propagate a few ticks later, do not assume that an immediate read in the same batch will always see the final result. Instead, use the watch tool with a small tick delay to see an interaction over the tick count. This tool is meant to validate or see redstone interactions\n" +
 			"- You can call multiple watch tools in the same batch if you need to monitor several blocks at once. They will all start watching at the same time"
+
+	const val BENCHMARK_SYSTEM_PROMPT_PROPOSAL =
+		"You are OpenBlock. You live in Minecraft.\n" +
+			"Your goal is to create and/or validate redstone contraptions. The user will provide you with a task. Make sure to complete this task the the best of your knowledge\n" +
+			"- After creating or modifying something important, validate it by interacting with it, watching it, or reading it back (do this with the tools provided).\n" +
+			"- If the task requires sandbox targets. Always create the required sandbox targets that where requested on the given blocks.\n" +
+	        "- For your final response message, keep it super concise"
 }

@@ -8,7 +8,7 @@ import java.nio.file.StandardOpenOption
 import java.util.Comparator
 
 object BenchmarkCatalogManager {
-	private const val ROOT_DIR = "openblock/benchmarks/presets"
+	private const val ROOT_DIR = "openblock-data/benchmarks/presets"
 	private const val PRESET_SUFFIX = ".json"
 	private const val GITKEEP_FILE = ".gitkeep"
 

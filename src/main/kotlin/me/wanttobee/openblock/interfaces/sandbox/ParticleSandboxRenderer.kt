@@ -19,6 +19,7 @@ object ParticleSandboxRenderer {
 	private const val TARGET_SPACING = 1.5
 	private const val MAX_POINTS_PER_EDGE = 64
 	private val WHITE_OUTLINE = DustParticleOptions(0xFFFFFF, 1.0f)
+	private val CYAN_OUTLINE = DustParticleOptions(0x00FFFF, 1.0f)
 	private val YELLOW_OUTLINE = DustParticleOptions(0xFFFF00, 1.0f)
 	private val RED_OUTLINE = DustParticleOptions(0xFF0000, 1.0f)
 	private val cachedStatesByPlayer = ConcurrentHashMap<UUID, CachedSandboxState>()
@@ -92,19 +93,30 @@ object ParticleSandboxRenderer {
 			}
 		}
 		cachedStatesByPlayer[playerId] = CachedSandboxState(
+			sessionId = AiSessionManager.getSession(playerId).getOrNull()?.id,
 			dimension = sandbox.dimension,
 			regions = cachedRegions,
 		)
 	}
 
 	private fun render(server: MinecraftServer) {
-		for ((playerId, cachedState) in cachedStatesByPlayer) {
-			val player = server.playerList.getPlayer(playerId) ?: continue
-			if (player.level().dimension() != cachedState.dimension) {
+		for (player in server.playerList.players) {
+			if (SandboxManager.rendererMode(player.uuid) != SandboxManager.RendererMode.PARTICLES) {
 				continue
 			}
-			for (region in cachedState.regions) {
-				renderRegion(player, region)
+
+			val cachedState = cachedStatesByPlayer[player.uuid]
+			if (cachedState != null && player.level().dimension() == cachedState.dimension) {
+				for (region in cachedState.regions) {
+					renderRegion(player, region)
+				}
+			}
+
+			for ((sessionId, sandbox) in SandboxManager.allSandboxes()) {
+				if (sessionId == cachedState?.sessionId || sandbox.dimension != player.level().dimension()) {
+					continue
+				}
+				renderRegion(player, CachedRegion(sandbox.boundary, CYAN_OUTLINE))
 			}
 		}
 	}
@@ -178,6 +190,7 @@ object ParticleSandboxRenderer {
 	}
 
 	private data class CachedSandboxState(
+		val sessionId: UUID?,
 		val dimension: net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level>,
 		val regions: List<CachedRegion>,
 	)

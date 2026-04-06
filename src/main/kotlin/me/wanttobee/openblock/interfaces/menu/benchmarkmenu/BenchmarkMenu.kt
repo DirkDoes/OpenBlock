@@ -6,6 +6,7 @@ import me.wanttobee.openblock.benchmarking.BenchmarkPresetManager
 import me.wanttobee.openblock.benchmarking.BenchmarkTagManager
 import me.wanttobee.openblock.interfaces.menu.base.AnvilInputMenu
 import me.wanttobee.openblock.interfaces.menu.base.MenuOpener
+import me.wanttobee.openblock.interfaces.menu.openblockmenu.OpenBlockMenuSupport
 import net.minecraft.ChatFormatting
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerPlayer
@@ -42,6 +43,70 @@ internal object BenchmarkMenu {
 	) {
 		MenuOpener.open(player, Component.literal("Benchmark Tags")) { containerId, inventory ->
 			BenchmarkTagMenu(containerId, inventory, player.uuid, page, initialSelection)
+		}
+	}
+
+	fun openRuns(player: ServerPlayer) {
+		MenuOpener.open(player, Component.literal("Benchmark Runs")) { containerId, inventory ->
+			BenchmarkRunsMenu(containerId, inventory, player.uuid)
+		}
+	}
+
+	fun openActiveRuns(player: ServerPlayer, page: Int = 0, initialSelection: java.util.UUID? = null) {
+		MenuOpener.open(player, Component.literal("Currently Running")) { containerId, inventory ->
+			BenchmarkActiveRunsMenu(containerId, inventory, player.uuid, page, initialSelection)
+		}
+	}
+
+	fun openCompletedRuns(player: ServerPlayer, page: Int = 0, initialSelectionKey: String? = null) {
+		MenuOpener.open(player, Component.literal("Completed Runs")) { containerId, inventory ->
+			BenchmarkCompletedRunsMenu(containerId, inventory, player.uuid, page, initialSelectionKey)
+		}
+	}
+
+	fun openAvailableModels(player: ServerPlayer, page: Int = 0) {
+		MenuOpener.open(player, Component.literal("Add Benchmark Model")) { containerId, inventory ->
+			BenchmarkAvailableModelsMenu(containerId, inventory, player.uuid, page)
+		}
+	}
+
+	fun openModelRuns(
+		player: ServerPlayer,
+		providerName: String,
+		modelName: String,
+		pathSegments: List<String> = emptyList(),
+		page: Int = 0,
+		initialSelection: String? = null,
+	) {
+		MenuOpener.open(player, Component.literal(modelRunsTitle(providerName, modelName, pathSegments))) { containerId, inventory ->
+			BenchmarkModelRunsMenu(containerId, inventory, player.uuid, providerName, modelName, pathSegments, page, initialSelection)
+		}
+	}
+
+	fun openRunSelection(
+		player: ServerPlayer,
+		providerName: String,
+		modelName: String,
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		returnPage: Int = 0,
+	) {
+		MenuOpener.open(player, Component.literal("Run Benchmark")) { containerId, inventory ->
+			BenchmarkRunSelectionMenu(containerId, inventory, player.uuid, providerName, modelName, pathSegments, entry, returnPage)
+		}
+	}
+
+	fun openPresetSessions(
+		player: ServerPlayer,
+		providerName: String,
+		modelName: String,
+		pathSegments: List<String>,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		page: Int = 0,
+		initialSelection: java.util.UUID? = null,
+	) {
+		MenuOpener.open(player, Component.literal("Benchmark Sessions")) { containerId, inventory ->
+			BenchmarkPresetSessionsMenu(containerId, inventory, player.uuid, providerName, modelName, pathSegments, entry, page, initialSelection)
 		}
 	}
 
@@ -203,6 +268,29 @@ internal object BenchmarkMenu {
 	) {
 		MenuOpener.open(player, Component.literal("Preset Targets")) { containerId, inventory ->
 			BenchmarkPresetTargetsMenu(containerId, inventory, player.uuid, pathSegments, returnPage, entry, page, initialSelection)
+		}
+	}
+
+	fun openPostValidationMenu(
+		player: ServerPlayer,
+		pathSegments: List<String>,
+		returnPage: Int,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+	) {
+		MenuOpener.open(player, Component.literal("Post-Validation")) { containerId, inventory ->
+			BenchmarkPostValidationMenu(containerId, inventory, player.uuid, pathSegments, returnPage, entry)
+		}
+	}
+
+	fun openPresetToolsMenu(
+		player: ServerPlayer,
+		pathSegments: List<String>,
+		returnPage: Int,
+		entry: BenchmarkCatalogManager.CatalogEntry,
+		page: Int = 0,
+	) {
+		MenuOpener.open(player, Component.literal("Preset Tools")) { containerId, inventory ->
+			BenchmarkPresetToolsMenu(containerId, inventory, player.uuid, pathSegments, returnPage, entry, page)
 		}
 	}
 
@@ -414,7 +502,24 @@ internal object BenchmarkMenu {
 		return if (pathSegments.isEmpty()) {
 			"Root - Benchmarks"
 		} else {
-			"${BenchmarkCatalogManager.displayName(pathSegments.last())} - Benchmarks"
+			"${shortPathLabel(pathSegments)} - Benchmarks"
+		}
+	}
+
+	private fun modelRunsTitle(providerName: String, modelName: String, pathSegments: List<String>): String {
+		val modelLabel = OpenBlockMenuSupport.modelDisplayName(providerName, modelName)
+		return if (pathSegments.isEmpty()) {
+			modelLabel
+		} else {
+			"$modelLabel / ${shortPathLabel(pathSegments)}"
+		}
+	}
+
+	private fun shortPathLabel(pathSegments: List<String>): String {
+		return when {
+			pathSegments.isEmpty() -> "root"
+			pathSegments.size == 1 -> BenchmarkCatalogManager.displayName(pathSegments.last())
+			else -> "../${BenchmarkCatalogManager.displayName(pathSegments.last())}"
 		}
 	}
 }

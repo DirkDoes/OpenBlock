@@ -250,7 +250,7 @@ object GoogleAiProvider : AiProvider {
 						.mapValues { (_, value) -> value?.toString().orEmpty() },
 				)
 			}
-			val toolOutcomes = ToolManager.invokeAllParallel(session.boundPlayerId, toolRequests) { started ->
+			val toolOutcomes = ToolManager.invokeAllParallel(session.toolScopeId, toolRequests) { started ->
 				started.conversationMessage?.let { content ->
 					session.addToolMessage(content)
 					session.lastMessage().getOrNull()?.let(onMessageAdded)

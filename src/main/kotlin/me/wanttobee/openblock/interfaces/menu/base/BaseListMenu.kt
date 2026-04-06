@@ -44,11 +44,27 @@ abstract class BaseListMenu(
 		val pageCount = pageCount(totalEntryCount)
 		setDisplayItem(footerLeftOuterSlot, MenuItems.placeholderPaneItem())
 		setDisplayItem(footerLeftInnerSlot, MenuItems.placeholderPaneItem())
-		setDisplayItem(leftFooterFillerSlot, MenuItems.blockedPaneItem())
+		if (hasDeselectableSelection()) {
+			setButton(leftFooterFillerSlot, MenuItems.blockedPaneItem()) { player, button, input ->
+				if (button == 0 && input == net.minecraft.world.inventory.ContainerInput.PICKUP) {
+					clearSelection()
+				}
+			}
+		} else {
+			setDisplayItem(leftFooterFillerSlot, MenuItems.blockedPaneItem())
+		}
 		setDisplayItem(previousPageSlot, MenuItems.placeholderPaneItem())
 		setDisplayItem(backSlot, MenuItems.backItem())
 		setDisplayItem(nextPageSlot, MenuItems.placeholderPaneItem())
-		setDisplayItem(rightFooterFillerSlot, MenuItems.blockedPaneItem())
+		if (hasDeselectableSelection()) {
+			setButton(rightFooterFillerSlot, MenuItems.blockedPaneItem()) { player, button, input ->
+				if (button == 0 && input == net.minecraft.world.inventory.ContainerInput.PICKUP) {
+					clearSelection()
+				}
+			}
+		} else {
+			setDisplayItem(rightFooterFillerSlot, MenuItems.blockedPaneItem())
+		}
 		setDisplayItem(footerRightInnerSlot, MenuItems.placeholderPaneItem())
 		setDisplayItem(footerRightOuterSlot, MenuItems.placeholderPaneItem())
 		if (page > 0) {
@@ -75,6 +91,10 @@ abstract class BaseListMenu(
 	}
 
 	protected abstract fun refreshMenu()
+
+	protected open fun hasDeselectableSelection(): Boolean = false
+
+	protected open fun clearSelection() = Unit
 
 	private fun pageCount(totalEntryCount: Int): Int {
 		return totalEntryCount.coerceAtLeast(1).let { ((it - 1) / entriesPerPage) + 1 }

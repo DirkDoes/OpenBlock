@@ -6,6 +6,7 @@ import me.wanttobee.openblock.ai.sessions.AiSessionManager
 import me.wanttobee.openblock.sandbox.Sandbox
 import me.wanttobee.openblock.sandbox.SandboxManager
 import me.wanttobee.openblock.sandbox.SandboxRegion
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents
 import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceKey
@@ -26,10 +27,13 @@ object DisplayEntitySandboxRenderer {
 	private const val LINE_OVERLAP = 0.02f
 	private const val OUTWARD_RATIO = 1.0 / 3.0
 	private const val INWARD_RATIO = 2.0 / 3.0
+	private const val REFRESH_INTERVAL_TICKS = 20
 	private val WHITE_BLOCK_STATE: BlockState = Blocks.WHITE_CONCRETE.defaultBlockState()
+	private val CYAN_BLOCK_STATE: BlockState = Blocks.CYAN_CONCRETE.defaultBlockState()
 	private val YELLOW_BLOCK_STATE: BlockState = Blocks.YELLOW_CONCRETE.defaultBlockState()
 	private val RED_BLOCK_STATE: BlockState = Blocks.RED_CONCRETE.defaultBlockState()
 	private val renderedEntitiesByPlayer = ConcurrentHashMap<UUID, List<RenderedEntity>>()
+	private var tickCounter = 0L
 
 	fun bind() {
 		SandboxManager.subscribeCurrentSandboxChanges { playerId, sandbox ->
@@ -60,6 +64,17 @@ object DisplayEntitySandboxRenderer {
 				clearRenderedSandbox(handler.player.uuid)
 			}
 		})
+		ServerTickEvents.END_SERVER_TICK.register { server ->
+			tickCounter += 1L
+			if (tickCounter % REFRESH_INTERVAL_TICKS != 0L) {
+				return@register
+			}
+			for (player in server.playerList.players) {
+				if (SandboxManager.rendererMode(player.uuid) == SandboxManager.RendererMode.DISPLAY_ENTITIES) {
+					renderSandbox(player.uuid, currentSandbox(player.uuid))
+				}
+			}
+		}
 	}
 
 	private fun currentSandbox(playerId: UUID): Sandbox? {
@@ -68,38 +83,45 @@ object DisplayEntitySandboxRenderer {
 
 	private fun renderSandbox(playerId: UUID, sandbox: Sandbox?) {
 		clearRenderedSandbox(playerId)
-		if (sandbox == null) {
-			return
-		}
-
 		val server = OpenBlock.currentServer().getOrNull() ?: return
-		val level = server.getLevel(sandbox.dimension) ?: return
+		val player = server.playerList.getPlayer(playerId) ?: return
+		val visibleDimension = player.level().dimension()
+		val level = server.getLevel(visibleDimension) ?: return
+		val ownSessionId = AiSessionManager.getSession(playerId).getOrNull()?.id
 		val renderedEntities = buildList {
-			addAll(spawnRegionEdges(level, sandbox.boundary, WHITE_BLOCK_STATE))
-			val targetPositions = sandbox.targets.values.map(BlockPos::immutable).toSet()
-			val exclusionPositions = sandbox.exclusions.values.map(BlockPos::immutable).toSet()
-			for (position in exclusionPositions) {
-				val region = SandboxRegion(
-					firstCorner = position.immutable(),
-					secondCorner = position.immutable(),
-				)
-				if (position in targetPositions) {
-					addAll(spawnOverlapRegionEdges(level, region))
-				} else {
-					addAll(spawnRegionEdges(level, region, RED_BLOCK_STATE))
+			if (sandbox != null && sandbox.dimension == visibleDimension) {
+				addAll(spawnRegionEdges(level, sandbox.boundary, WHITE_BLOCK_STATE))
+				val targetPositions = sandbox.targets.values.map(BlockPos::immutable).toSet()
+				val exclusionPositions = sandbox.exclusions.values.map(BlockPos::immutable).toSet()
+				for (position in exclusionPositions) {
+					val region = SandboxRegion(
+						firstCorner = position.immutable(),
+						secondCorner = position.immutable(),
+					)
+					if (position in targetPositions) {
+						addAll(spawnOverlapRegionEdges(level, region))
+					} else {
+						addAll(spawnRegionEdges(level, region, RED_BLOCK_STATE))
+					}
+				}
+				for (position in targetPositions - exclusionPositions) {
+					addAll(
+						spawnRegionEdges(
+							level,
+							SandboxRegion(
+								firstCorner = position.immutable(),
+								secondCorner = position.immutable(),
+							),
+							YELLOW_BLOCK_STATE,
+						)
+					)
 				}
 			}
-			for (position in targetPositions - exclusionPositions) {
-				addAll(
-					spawnRegionEdges(
-						level,
-						SandboxRegion(
-							firstCorner = position.immutable(),
-							secondCorner = position.immutable(),
-						),
-						YELLOW_BLOCK_STATE,
-					)
-				)
+			for ((sessionId, otherSandbox) in SandboxManager.allSandboxes()) {
+				if (sessionId == ownSessionId || otherSandbox.dimension != visibleDimension) {
+					continue
+				}
+				addAll(spawnRegionEdges(level, otherSandbox.boundary, CYAN_BLOCK_STATE))
 			}
 		}
 		renderedEntitiesByPlayer[playerId] = renderedEntities

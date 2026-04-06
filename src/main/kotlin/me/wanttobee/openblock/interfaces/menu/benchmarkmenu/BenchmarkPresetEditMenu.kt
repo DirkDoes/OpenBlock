@@ -19,7 +19,7 @@ internal class BenchmarkPresetEditMenu(
 	private val pathSegments: List<String>,
 	private val returnPage: Int,
 	private val entry: BenchmarkCatalogManager.CatalogEntry,
-) : BaseMenu(playerId, containerId, playerInventory, rows = 1) {
+) : BaseMenu(playerId, containerId, playerInventory, rows = 2) {
 	init {
 		refreshMenu()
 	}
@@ -31,7 +31,7 @@ internal class BenchmarkPresetEditMenu(
 		val hasCurrentSandbox = BenchmarkPresetManager.hasCurrentSandbox(playerId)
 		val metadata = BenchmarkPresetManager.metadata(pathSegments, entry).getOrNull()
 
-		for (slot in 0 until 9) {
+		for (slot in 0 until 18) {
 			setDisplayItem(slot, MenuItems.namelessPlaceholderPaneItem())
 		}
 
@@ -140,7 +140,35 @@ internal class BenchmarkPresetEditMenu(
 				BenchmarkMenu.openPresetTargetsMenu(player, pathSegments, returnPage, entry)
 			}
 		}
-		setButton(8, MenuItems.backItem()) { player, button, input ->
+		setButton(
+			9,
+			MenuItems.menuItem(
+				item = Items.COMPARATOR,
+				name = Component.literal("Post-Validation").withStyle(ChatFormatting.YELLOW),
+				lore = listOf(
+					Component.literal(
+						"current: ${metadata?.postValidation ?: "manual"}"
+					).withStyle(ChatFormatting.GRAY),
+				),
+			),
+		) { player, button, input ->
+			if (button == 0 && input == ContainerInput.PICKUP) {
+				BenchmarkMenu.openPostValidationMenu(player, pathSegments, returnPage, entry)
+			}
+		}
+		setButton(
+			10,
+			MenuItems.menuItem(
+				item = Items.COMMAND_BLOCK,
+				name = Component.literal("Tool Calls").withStyle(ChatFormatting.YELLOW),
+				lore = listOf(Component.literal("Choose which tool calls this preset enables.").withStyle(ChatFormatting.GRAY)),
+			),
+		) { player, button, input ->
+			if (button == 0 && input == ContainerInput.PICKUP) {
+				BenchmarkMenu.openPresetToolsMenu(player, pathSegments, returnPage, entry)
+			}
+		}
+		setButton(17, MenuItems.backItem()) { player, button, input ->
 			if (button == 0 && input == ContainerInput.PICKUP) {
 				BenchmarkMenu.openCatalog(player, pathSegments, returnPage, entry.storedName)
 			}

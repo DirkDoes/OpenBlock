@@ -66,6 +66,13 @@ internal class BenchmarkPresetTargetsMenu(
 		broadcastChanges()
 	}
 
+	override fun hasDeselectableSelection(): Boolean = selectedTargetKey != null
+
+	override fun clearSelection() {
+		selectedTargetKey = null
+		refreshMenu()
+	}
+
 	private fun addTargetsFooter(targets: List<BenchmarkPresetManager.PresetTargetEntry>) {
 		addPageNavigation(targets.size) { player ->
 			BenchmarkMenu.openPresetEditMenu(player, pathSegments, returnPage, entry)

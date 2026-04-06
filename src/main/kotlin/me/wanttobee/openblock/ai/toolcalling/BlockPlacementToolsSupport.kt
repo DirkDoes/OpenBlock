@@ -693,8 +693,21 @@ object BlockPlacementToolsSupport {
 		}
 
 		val player = server.playerList.getPlayer(playerId)
-			?: return Result.failure(NoSuchElementException("Bound player is not online."))
-		return Result.success(player.createCommandSourceStack())
+		return if (player != null) {
+			Result.success(player.createCommandSourceStack())
+		} else {
+			val sandbox = AiService.currentSandboxForScope(playerId)
+			val level = sandbox?.dimension?.let(server::getLevel)
+			if (sandbox != null && level != null) {
+				Result.success(
+					CommandToolsSupport.createCommandSource(server, null)
+						.withLevel(level)
+						.withPosition(Vec3.atCenterOf(sandbox.minCorner()))
+				)
+			} else {
+				Result.success(CommandToolsSupport.createCommandSource(server, null))
+			}
+		}
 	}
 
 	private fun parseBlockPos(source: CommandSourceStack, rawPosition: String): Result<BlockPos> {
@@ -792,12 +805,12 @@ object BlockPlacementToolsSupport {
 
 	private fun isAllowedPosition(playerId: UUID?, source: CommandSourceStack, position: BlockPos): Boolean {
 		val scopedPlayerId = playerId ?: return true
-		val sandbox = AiService.currentSandbox(scopedPlayerId).getOrNull() ?: return true
+		val sandbox = AiService.currentSandboxForScope(scopedPlayerId) ?: return true
 		return sandbox.contains(source.level.dimension(), position)
 	}
 
 	private fun exclusionNamesAt(playerId: UUID?, source: CommandSourceStack, position: BlockPos): List<String> {
-		val sandbox = playerId?.let(AiService::currentSandbox)?.getOrNull() ?: return emptyList()
+		val sandbox = playerId?.let(AiService::currentSandboxForScope) ?: return emptyList()
 		if (sandbox.dimension != source.level.dimension()) {
 			return emptyList()
 		}
@@ -815,7 +828,7 @@ object BlockPlacementToolsSupport {
 		secondCorner: BlockPos,
 	): Boolean {
 		val scopedPlayerId = playerId ?: return true
-		val sandbox = AiService.currentSandbox(scopedPlayerId).getOrNull() ?: return true
+		val sandbox = AiService.currentSandboxForScope(scopedPlayerId) ?: return true
 		return sandbox.containsArea(source.level.dimension(), firstCorner, secondCorner)
 	}
 

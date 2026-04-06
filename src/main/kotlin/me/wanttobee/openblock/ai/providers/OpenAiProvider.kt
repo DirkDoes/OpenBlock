@@ -225,7 +225,7 @@ object OpenAiProvider : AiProvider {
 					arguments = parseJsonArguments(toolCall.arguments()),
 				)
 			}
-			val toolOutcomes = ToolManager.invokeAllParallel(session.boundPlayerId, toolRequests) { started ->
+			val toolOutcomes = ToolManager.invokeAllParallel(session.toolScopeId, toolRequests) { started ->
 				started.conversationMessage?.let { content ->
 					session.addToolMessage(content)
 					session.lastMessage().getOrNull()?.let(onMessageAdded)

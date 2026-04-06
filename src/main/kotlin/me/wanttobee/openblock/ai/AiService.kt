@@ -1,5 +1,6 @@
 package me.wanttobee.openblock.ai
 
+import me.wanttobee.openblock.OpenBlock
 import me.wanttobee.openblock.ai.context.KnowledgeBase
 import me.wanttobee.openblock.ai.providers.AiProvider
 import me.wanttobee.openblock.ai.sessions.AiSessionManager
@@ -56,13 +57,7 @@ object AiService {
 
 	fun interruptCurrentGeneration(playerId: UUID, message: String): Result<Boolean> {
 		val session = currentSession(playerId).getOrElse { return Result.failure(it) }
-		val interruptedCount = session.interruptActiveGenerations()
-		if (interruptedCount <= 0) {
-			return Result.success(false)
-		}
-
-		session.addUserMessage(message, supplementalHiddenContent = INTERRUPT_NOTE)
-		return Result.success(true)
+		return interruptSession(session.toolScopeId, message)
 	}
 
 	fun sendMessage(
@@ -106,10 +101,53 @@ object AiService {
 
 	fun clearSession(playerId: UUID): Boolean = AiSessionManager.clearSession(playerId)
 
+	private fun sessionForScope(scopeId: UUID): Result<Session> {
+		return AiSessionManager.sessionForScope(scopeId)
+	}
+
 	fun currentSandbox(playerId: UUID): Result<Sandbox> {
 		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
 		return session.sandbox()?.let(Result.Companion::success)
 			?: Result.failure(NoSuchElementException("No active sandbox."))
+	}
+
+	fun currentSandboxForScope(scopeId: UUID): Sandbox? {
+		return AiSessionManager.findSessionForScope(scopeId)?.sandbox()
+			?: SandboxManager.getSandbox(scopeId).getOrNull()
+	}
+
+	fun runSession(
+		session: Session,
+		target: AiTargetManager.AiTarget,
+		message: String,
+		onActionChange: (String, AiActionBarManager.IndicatorState) -> Unit = { _, _ -> },
+		onMessageAdded: (SessionMessage) -> Unit = {},
+	): Result<Boolean> {
+		val generationId = session.beginGeneration()
+		session.addUserMessage(message)
+		val generationResult = runCatching {
+			target.provider.generate(target.model, session, generationId, onActionChange, onMessageAdded)
+		}.fold(
+			onSuccess = { it },
+			onFailure = { exception ->
+				session.addErrorMessage(exception.message ?: "Unknown error")
+				Result.failure(exception)
+			},
+		).also {
+			session.finishGeneration(generationId)
+		}
+		return generationResult
+	}
+
+	fun interruptSession(scopeId: UUID, message: String): Result<Boolean> {
+		val session = sessionForScope(scopeId).getOrElse { return Result.failure(it) }
+		val interruptedCount = session.interruptActiveGenerations()
+		if (interruptedCount <= 0) {
+			return Result.success(false)
+		}
+
+		session.addUserMessage(message, supplementalHiddenContent = INTERRUPT_NOTE)
+		return Result.success(true)
 	}
 
 	fun setSandbox(
@@ -119,6 +157,16 @@ object AiService {
 		secondCorner: BlockPos,
 	): Result<Sandbox> {
 		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return setSandboxForScope(session.toolScopeId, dimension, firstCorner, secondCorner)
+	}
+
+	fun setSandboxForScope(
+		scopeId: UUID,
+		dimension: ResourceKey<Level>,
+		firstCorner: BlockPos,
+		secondCorner: BlockPos,
+	): Result<Sandbox> {
+		val session = sessionForScope(scopeId).getOrElse { return Result.failure(it) }
 		return SandboxManager.setSandbox(session.id, dimension, firstCorner, secondCorner)
 			.onSuccess(session::updateSandboxState)
 	}
@@ -130,6 +178,16 @@ object AiService {
 		position: BlockPos,
 	): Result<Sandbox> {
 		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return addSandboxExclusionForScope(session.toolScopeId, dimension, name, position)
+	}
+
+	fun addSandboxExclusionForScope(
+		scopeId: UUID,
+		dimension: ResourceKey<Level>,
+		name: String,
+		position: BlockPos,
+	): Result<Sandbox> {
+		val session = sessionForScope(scopeId).getOrElse { return Result.failure(it) }
 		return SandboxManager.addExclusion(session.id, dimension, name, position)
 			.onSuccess(session::updateSandboxState)
 	}
@@ -153,24 +211,49 @@ object AiService {
 		position: BlockPos,
 	): Result<Sandbox> {
 		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return addSandboxTargetForScope(session.toolScopeId, dimension, name, position)
+	}
+
+	fun addSandboxTargetForScope(
+		scopeId: UUID,
+		dimension: ResourceKey<Level>,
+		name: String,
+		position: BlockPos,
+	): Result<Sandbox> {
+		val session = sessionForScope(scopeId).getOrElse { return Result.failure(it) }
 		return SandboxManager.addTarget(session.id, dimension, name, position)
 			.onSuccess(session::updateSandboxState)
 	}
 
 	fun removeSandboxTarget(playerId: UUID, name: String): Result<Sandbox> {
 		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return removeSandboxTargetForScope(session.toolScopeId, name)
+	}
+
+	fun removeSandboxTargetForScope(scopeId: UUID, name: String): Result<Sandbox> {
+		val session = sessionForScope(scopeId).getOrElse { return Result.failure(it) }
 		return SandboxManager.removeTarget(session.id, name)
 			.onSuccess(session::updateSandboxState)
 	}
 
 	fun clearSandboxTargets(playerId: UUID): Result<Sandbox> {
 		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		return clearSandboxTargetsForScope(session.toolScopeId)
+	}
+
+	fun clearSandboxTargetsForScope(scopeId: UUID): Result<Sandbox> {
+		val session = sessionForScope(scopeId).getOrElse { return Result.failure(it) }
 		return SandboxManager.clearTargets(session.id)
 			.onSuccess(session::updateSandboxState)
 	}
 
 	fun clearSandbox(playerId: UUID): Result<Sandbox> {
 		val session = AiSessionManager.getSession(playerId).getOrElse { return Result.failure(it) }
+		val sandbox = session.sandbox() ?: return Result.failure(NoSuchElementException("No active sandbox."))
+		val server = OpenBlock.currentServer().getOrElse { return Result.failure(it) }
+		val level = server.getLevel(sandbox.dimension)
+			?: return Result.failure(IllegalStateException("Sandbox dimension is not currently loaded."))
+		SandboxFloorBuilder.clearFloor(level, sandbox).getOrElse { return Result.failure(it) }
 		return SandboxManager.clearSandbox(session.id)
 			.onSuccess { session.updateSandboxState(null) }
 	}
