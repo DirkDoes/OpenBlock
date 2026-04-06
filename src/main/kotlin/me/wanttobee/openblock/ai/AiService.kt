@@ -253,6 +253,7 @@ object AiService {
 		val server = OpenBlock.currentServer().getOrElse { return Result.failure(it) }
 		val level = server.getLevel(sandbox.dimension)
 			?: return Result.failure(IllegalStateException("Sandbox dimension is not currently loaded."))
+		SandboxFloorBuilder.clearContents(level, sandbox).getOrElse { return Result.failure(it) }
 		SandboxFloorBuilder.clearFloor(level, sandbox).getOrElse { return Result.failure(it) }
 		return SandboxManager.clearSandbox(session.id)
 			.onSuccess { session.updateSandboxState(null) }

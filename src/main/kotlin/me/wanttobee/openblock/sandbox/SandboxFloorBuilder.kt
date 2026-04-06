@@ -109,6 +109,39 @@ object SandboxFloorBuilder {
 		return Result.success(Unit)
 	}
 
+	fun clearContents(level: ServerLevel, sandbox: Sandbox): Result<Unit> {
+		if (level.dimension() != sandbox.dimension) {
+			return Result.failure(IllegalArgumentException("Sandbox contents must be cleared in the sandbox dimension."))
+		}
+
+		val minCorner = sandbox.minCorner()
+		val maxCorner = sandbox.maxCorner()
+		for (y in minCorner.y..maxCorner.y) {
+			for (z in minCorner.z..maxCorner.z) {
+				for (x in minCorner.x..maxCorner.x) {
+					val position = BlockPos(x, y, z)
+					val existingState = level.getBlockState(position)
+					if (existingState.isAir) {
+						continue
+					}
+
+					val wasCleared = level.setBlock(position, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS) ||
+						(run {
+							level.destroyBlock(position, false)
+							level.setBlock(position, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS)
+						})
+					if (!wasCleared && !level.getBlockState(position).isAir) {
+						return Result.failure(
+							IllegalStateException("Unable to clear sandbox block at [${position.x}, ${position.y}, ${position.z}].")
+						)
+					}
+				}
+			}
+		}
+
+		return Result.success(Unit)
+	}
+
 	data class PlacementSummary(
 		val y: Int,
 		val placedConcreteBlocks: Int,
