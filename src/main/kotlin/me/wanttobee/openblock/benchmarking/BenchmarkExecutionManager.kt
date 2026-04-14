@@ -248,7 +248,9 @@ object BenchmarkExecutionManager {
 						build = capture.build,
 						inputTokens = tokenTotals.inputTokens,
 						outputTokens = tokenTotals.outputTokens,
-						cachedTokens = tokenTotals.cachedTokens,
+						cachedInputTokens = tokenTotals.cachedInputTokens,
+						reasoningTokens = tokenTotals.reasoningTokens,
+						generationDurationMillis = tokenTotals.generationDurationMillis,
 					),
 				).getOrThrow()
 			} else {

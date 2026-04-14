@@ -76,27 +76,37 @@ object AiService {
 		}.fold(
 			onSuccess = { it },
 			onFailure = { exception ->
-				session.addErrorMessage(exception.message ?: "Unknown error")
+				session.addErrorMessage(
+					content = exception.message ?: "Unknown error",
+					providerName = target.provider.name,
+					modelName = target.model.apiName,
+					generationId = generationId,
+				)
 				Result.failure(exception)
 			},
-		).also {
-			session.finishGeneration(generationId)
-		}
+		)
 		val completedNormally = generationResult.getOrNull() == true
 		val interrupted = generationResult.getOrNull() == false
 		val newMessages = session.messages()
 			.drop(messageCountBeforeGenerate)
 			.filter { it.type != SessionMessage.Type.USER && it.type != SessionMessage.Type.TOOL }
-		return if (completedNormally && newMessages.isNotEmpty()) {
+		val response = if (completedNormally && newMessages.isNotEmpty()) {
 			target to newMessages
 		} else if (interrupted) {
 			target to emptyList()
 		} else if (newMessages.isNotEmpty()) {
 			target to newMessages
 		} else {
-			session.addErrorMessage("No response message was appended to the session.")
+			session.addErrorMessage(
+				content = "No response message was appended to the session.",
+				providerName = target.provider.name,
+				modelName = target.model.apiName,
+				generationId = generationId,
+			)
 			target to listOfNotNull(session.lastMessage().getOrNull())
 		}
+		session.finishGeneration(generationId)
+		return response
 	}
 
 	fun clearSession(playerId: UUID): Boolean = AiSessionManager.clearSession(playerId)
@@ -130,12 +140,16 @@ object AiService {
 		}.fold(
 			onSuccess = { it },
 			onFailure = { exception ->
-				session.addErrorMessage(exception.message ?: "Unknown error")
+				session.addErrorMessage(
+					content = exception.message ?: "Unknown error",
+					providerName = target.provider.name,
+					modelName = target.model.apiName,
+					generationId = generationId,
+				)
 				Result.failure(exception)
 			},
-		).also {
-			session.finishGeneration(generationId)
-		}
+		)
+		session.finishGeneration(generationId)
 		return generationResult
 	}
 

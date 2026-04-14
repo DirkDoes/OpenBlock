@@ -158,7 +158,8 @@ object AiSessionManager {
 			playerSessions.activeSession = session
 			playerSessions.selectedSessionId = session.id
 			if (session.isPersisted()) {
-				cacheSummary(playerSessions, session.summary(), addToFront = false)
+				val summary = SessionLogger.loadSessionSummary(session.storagePath, session.id).getOrElse { session.summary() }
+				cacheSummary(playerSessions, summary, addToFront = false)
 			}
 		}
 		registerSession(session)

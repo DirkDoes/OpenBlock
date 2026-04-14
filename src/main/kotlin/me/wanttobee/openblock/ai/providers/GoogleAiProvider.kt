@@ -170,13 +170,18 @@ object GoogleAiProvider : AiProvider {
 			if (outcome.interrupted) {
 				false
 			} else {
-				session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName)
+				session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName, generationId)
 				true
 			}
 		}
 
 		result.onFailure { exception ->
-			session.addErrorMessage(formatException(exception), providerName = name, modelName = model.apiName)
+			session.addErrorMessage(
+				content = formatException(exception),
+				providerName = name,
+				modelName = model.apiName,
+				generationId = generationId,
+			)
 		}
 		return result
 	}
@@ -282,14 +287,14 @@ object GoogleAiProvider : AiProvider {
 						failedResult
 					},
 				)
+				val functionResponseBuilder = FunctionResponse.builder()
+					.name(toolName)
+					.response(googleFunctionResponsePayload(result))
+				functionCall.id().orElse(null)?.let(functionResponseBuilder::id)
 
 				Part.builder()
 					.functionResponse(
-						FunctionResponse.builder()
-							.name(toolName)
-							.id(functionCall.id().orElse(null))
-							.response(googleFunctionResponsePayload(result))
-							.build()
+						functionResponseBuilder.build()
 					)
 					.build()
 			}
@@ -417,13 +422,18 @@ object GoogleAiProvider : AiProvider {
 	private fun googleUsage(response: com.google.genai.types.GenerateContentResponse): Result<SessionTokenUsage> {
 		val usage = response.usageMetadata().orElse(null)
 			?: return Result.failure(NoSuchElementException("Google response has no usage metadata."))
+		val toolUsePromptTokens = usage.toolUsePromptTokenCount().orElse(null)?.toLong()
+		val promptTokens = usage.promptTokenCount().orElse(null)?.toLong()
+		val normalizedInputTokens = listOfNotNull(
+			promptTokens,
+			toolUsePromptTokens,
+		).sum().takeIf { it > 0 }
 		return Result.success(SessionTokenUsage(
-			inputTokens = usage.promptTokenCount().orElse(null)?.toLong(),
+			inputTokens = normalizedInputTokens,
 			outputTokens = usage.candidatesTokenCount().orElse(null)?.toLong(),
 			totalTokens = usage.totalTokenCount().orElse(null)?.toLong(),
-			cacheReadInputTokens = usage.cachedContentTokenCount().orElse(null)?.toLong(),
-			thoughtsTokens = usage.thoughtsTokenCount().orElse(null)?.toLong(),
-			toolUsePromptTokens = usage.toolUsePromptTokenCount().orElse(null)?.toLong(),
+			cachedInputTokens = usage.cachedContentTokenCount().orElse(null)?.toLong(),
+			reasoningTokens = usage.thoughtsTokenCount().orElse(null)?.toLong(),
 		))
 	}
 

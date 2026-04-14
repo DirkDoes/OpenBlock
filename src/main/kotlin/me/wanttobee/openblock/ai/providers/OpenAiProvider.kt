@@ -154,13 +154,18 @@ object OpenAiProvider : AiProvider {
 			if (outcome.interrupted) {
 				false
 			} else {
-				session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName)
+				session.addAssistantMessage(outcome.text, outcome.usage, name, model.apiName, generationId)
 				true
 			}
 		}
 
 		result.onFailure { exception ->
-			session.addErrorMessage(exception.message ?: "Unknown error", providerName = name, modelName = model.apiName)
+			session.addErrorMessage(
+				content = exception.message ?: "Unknown error",
+				providerName = name,
+				modelName = model.apiName,
+				generationId = generationId,
+			)
 		}
 		return result
 	}

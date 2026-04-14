@@ -4,6 +4,7 @@ import me.wanttobee.openblock.benchmarking.BenchmarkExecutionManager
 import me.wanttobee.openblock.benchmarking.BenchmarkRunsManager
 import me.wanttobee.openblock.interfaces.menu.MenuItems
 import me.wanttobee.openblock.interfaces.menu.base.BaseListMenu
+import me.wanttobee.openblock.interfaces.menu.openblockmenu.OpenBlockMenuSupport
 import me.wanttobee.openblock.util.colorize
 import net.minecraft.ChatFormatting
 import net.minecraft.network.chat.Component
@@ -174,15 +175,21 @@ internal class BenchmarkModelRunsMenu(
 		name = Component.literal(summary.entry.displayName).withStyle(ChatFormatting.WHITE),
 		lore = when (summary.entry.kind) {
 			me.wanttobee.openblock.benchmarking.BenchmarkCatalogManager.EntryKind.FOLDER ->
-				listOf(Component.literal("total: ${summary.total.successCount}/${summary.total.totalCount}").withStyle(ChatFormatting.GRAY)) +
-					tokenLore(summary.tokenUsage) +
-					summary.tagScores.map { tag ->
+				buildList {
+					add(Component.literal("total: ${summary.total.successCount}/${summary.total.totalCount}").withStyle(ChatFormatting.GRAY))
+					addAll(summary.tagScores.map { tag ->
 						Component.literal("${tag.tagName}: ${tag.successCount}/${tag.totalCount}").withStyle(ChatFormatting.GRAY)
-					}
+					})
+					add(durationLore(summary.generationDuration.averageGenerationDurationMillis))
+					addAll(tokenLore(summary.tokenUsage))
+				}
 
 			me.wanttobee.openblock.benchmarking.BenchmarkCatalogManager.EntryKind.PRESET ->
-				listOf(Component.literal("score: ${summary.total.successCount}/${summary.total.totalCount}").withStyle(ChatFormatting.GRAY)) +
-					tokenLore(summary.tokenUsage)
+				buildList {
+					add(Component.literal("score: ${summary.total.successCount}/${summary.total.totalCount}").withStyle(ChatFormatting.GRAY))
+					add(durationLore(summary.generationDuration.averageGenerationDurationMillis))
+					addAll(tokenLore(summary.tokenUsage))
+				}
 		},
 		glint = selected,
 	)
@@ -198,10 +205,19 @@ internal class BenchmarkModelRunsMenu(
 	}
 
 	private fun tokenLore(tokenUsage: BenchmarkRunsManager.TokenUsageSummary): List<Component> {
-		return listOf(
-			Component.literal("input tokens: ${tokenUsage.inputTokens}").withStyle(ChatFormatting.GRAY),
-			Component.literal("output tokens: ${tokenUsage.outputTokens}").withStyle(ChatFormatting.GRAY),
-			Component.literal("cached tokens: ${tokenUsage.cachedTokens}").withStyle(ChatFormatting.GRAY),
+		return OpenBlockMenuSupport.standardTokenLore(
+			inputTokens = tokenUsage.inputTokens,
+			outputTokens = tokenUsage.outputTokens,
+			cachedInputTokens = tokenUsage.cachedInputTokens,
+			reasoningTokens = tokenUsage.reasoningTokens,
 		)
+	}
+
+	private fun durationLore(durationMillis: Long?): Component {
+		return Component.literal("avg time: ").withStyle(ChatFormatting.GRAY)
+			.append(
+				Component.literal(durationMillis?.let(OpenBlockMenuSupport::formatGenerationDuration) ?: "n/a")
+					.withStyle(ChatFormatting.WHITE)
+			)
 	}
 }

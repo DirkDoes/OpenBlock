@@ -161,13 +161,29 @@ internal class BenchmarkCompletedRunsMenu(
 		name = Component.empty()
 			.append(completionPrefix(summary.total.complete))
 			.append(Component.literal(summary.model.modelDisplayName).withStyle(ChatFormatting.WHITE)),
-		lore = listOf(
-			Component.literal("total: ${summary.total.successCount}/${summary.total.totalCount}").withStyle(ChatFormatting.GRAY),
-			Component.literal("input tokens: ${summary.tokenUsage.inputTokens}").withStyle(ChatFormatting.GRAY),
-			Component.literal("output tokens: ${summary.tokenUsage.outputTokens}").withStyle(ChatFormatting.GRAY),
-			Component.literal("cached tokens: ${summary.tokenUsage.cachedTokens}").withStyle(ChatFormatting.GRAY),
-		) + summary.tagScores.map { tag ->
-			Component.literal("${tag.tagName}: ${tag.successCount}/${tag.totalCount}").withStyle(ChatFormatting.GRAY)
+		lore = buildList {
+			add(Component.literal("total: ${summary.total.successCount}/${summary.total.totalCount}").withStyle(ChatFormatting.GRAY))
+			addAll(summary.tagScores.map { tag ->
+				Component.literal("${tag.tagName}: ${tag.successCount}/${tag.totalCount}").withStyle(ChatFormatting.GRAY)
+			})
+			add(
+				Component.literal("avg time: ").withStyle(ChatFormatting.GRAY)
+					.append(
+						Component.literal(
+							summary.generationDuration.averageGenerationDurationMillis
+								?.let(OpenBlockMenuSupport::formatGenerationDuration)
+								?: "n/a"
+						).withStyle(ChatFormatting.WHITE)
+					)
+			)
+			addAll(
+				OpenBlockMenuSupport.standardTokenLore(
+					inputTokens = summary.tokenUsage.inputTokens,
+					outputTokens = summary.tokenUsage.outputTokens,
+					cachedInputTokens = summary.tokenUsage.cachedInputTokens,
+					reasoningTokens = summary.tokenUsage.reasoningTokens,
+				)
+			)
 		},
 		glint = selectedModelKey == summary.model.key(),
 	)

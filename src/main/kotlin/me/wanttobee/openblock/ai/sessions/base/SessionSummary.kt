@@ -9,4 +9,8 @@ data class SessionSummary(
 	val systemPrompt: String?,
 	val userMessageCount: Int,
 	val lastResponseProviderName: String?,
+	val inputTokens: Long = 0,
+	val outputTokens: Long = 0,
+	val cachedInputTokens: Long = 0,
+	val reasoningTokens: Long = 0,
 )

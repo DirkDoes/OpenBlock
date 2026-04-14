@@ -14,6 +14,7 @@ import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.Style
 import net.minecraft.world.item.Items
 import net.minecraft.world.level.ItemLike
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -112,11 +113,40 @@ internal object OpenBlockMenuSupport {
 		return "Session ${session.id.toString().take(8)}"
 	}
 
-	fun messageLore(content: String): List<Component> {
-		val baseStyle = Style.EMPTY.withColor(ChatFormatting.WHITE).withItalic(false)
+	fun messageLore(content: String, color: ChatFormatting = ChatFormatting.WHITE): List<Component> {
+		val baseStyle = Style.EMPTY.withColor(color).withItalic(false)
 		return content.lines().ifEmpty { listOf("") }.map { line ->
 			MinecraftTextFormatter.format(line.ifEmpty { " " }, baseStyle)
 		}
+	}
+
+	fun formatGenerationDuration(durationMillis: Long): String {
+		if (durationMillis < 1_000L) {
+			return "$durationMillis ms"
+		}
+
+		val totalSeconds = durationMillis / 1_000.0
+		if (durationMillis < 60_000L) {
+			return String.format(Locale.ROOT, "%.1f s", totalSeconds)
+		}
+
+		val minutes = durationMillis / 60_000L
+		val remainingSeconds = (durationMillis % 60_000L) / 1_000.0
+		return String.format(Locale.ROOT, "%d m %.1f s", minutes, remainingSeconds)
+	}
+
+	fun standardTokenLore(
+		inputTokens: Long,
+		outputTokens: Long,
+		cachedInputTokens: Long,
+		reasoningTokens: Long,
+	): List<Component> {
+		return listOf(
+			Component.literal("input tokens: $inputTokens").withStyle(ChatFormatting.DARK_GRAY),
+			Component.literal("output tokens: $outputTokens").withStyle(ChatFormatting.DARK_GRAY),
+			Component.literal("cached input tokens: $cachedInputTokens").withStyle(ChatFormatting.DARK_GRAY),
+			Component.literal("reasoning tokens: $reasoningTokens").withStyle(ChatFormatting.DARK_GRAY),
+		)
 	}
 
 	fun toolDisplayName(tool: AiTool): String {

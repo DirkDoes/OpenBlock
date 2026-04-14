@@ -31,7 +31,8 @@ internal class SessionMessagesMenu(
 			.map { session ->
 				session.messages().filter { message ->
 					message.type == SessionMessage.Type.USER ||
-						message.type == SessionMessage.Type.ASSISTANT
+						message.type == SessionMessage.Type.ASSISTANT ||
+						message.type == SessionMessage.Type.ERROR
 				}
 			}
 			.getOrElse { emptyList() }
@@ -42,7 +43,10 @@ internal class SessionMessagesMenu(
 				MenuItems.menuItem(
 					item = Items.WRITABLE_BOOK,
 					name = Component.literal("No visible messages").withStyle(ChatFormatting.YELLOW),
-					lore = listOf(Component.literal("Only user messages and final AI replies are shown here.").withStyle(ChatFormatting.GRAY)),
+					lore = listOf(
+						Component.literal("User messages, final AI replies, and errors are shown here.")
+							.withStyle(ChatFormatting.GRAY)
+					),
 				)
 			)
 		} else {
@@ -58,20 +62,53 @@ internal class SessionMessagesMenu(
 	}
 
 	private fun messageItem(message: SessionMessage) = MenuItems.menuItem(
-		item = if (message.type == SessionMessage.Type.USER) {
-			Items.LIGHT_GRAY_WOOL
-		} else {
-			OpenBlockMenuSupport.providerWool(message.providerName)
+		item = when (message.type) {
+			SessionMessage.Type.USER -> Items.LIGHT_GRAY_WOOL
+			SessionMessage.Type.ERROR -> Items.RED_STAINED_GLASS
+			SessionMessage.Type.ASSISTANT -> OpenBlockMenuSupport.providerWool(message.providerName)
+			SessionMessage.Type.TOOL -> Items.GRAY_WOOL
 		},
-		name = Component.literal(messageTitle(message)).withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC),
-		lore = OpenBlockMenuSupport.messageLore(message.content),
+		name = Component.literal(messageTitle(message)).withStyle(messageTitleStyle(message), ChatFormatting.ITALIC),
+		lore = messageLore(message),
 	)
 
 	private fun messageTitle(message: SessionMessage): String {
-		return if (message.type == SessionMessage.Type.USER) {
-			"User"
+		return when (message.type) {
+			SessionMessage.Type.USER -> "User"
+			SessionMessage.Type.ERROR -> {
+				val modelDisplayName = OpenBlockMenuSupport.modelDisplayName(message.providerName, message.modelName)
+				if (modelDisplayName == "Unknown") "Error" else "Error: $modelDisplayName"
+			}
+			SessionMessage.Type.ASSISTANT -> OpenBlockMenuSupport.modelDisplayName(message.providerName, message.modelName)
+			SessionMessage.Type.TOOL -> "Tool"
+		}
+	}
+
+	private fun messageTitleStyle(message: SessionMessage): ChatFormatting {
+		return if (message.type == SessionMessage.Type.ERROR) {
+			ChatFormatting.RED
 		} else {
-			OpenBlockMenuSupport.modelDisplayName(message.providerName, message.modelName)
+			ChatFormatting.GRAY
+		}
+	}
+
+	private fun messageLore(message: SessionMessage): List<Component> {
+		return buildList {
+			message.generationDurationMillis?.let { durationMillis ->
+				add(
+					Component.literal("Generation time: ").withStyle(ChatFormatting.GRAY)
+						.append(
+							Component.literal(OpenBlockMenuSupport.formatGenerationDuration(durationMillis))
+								.withStyle(ChatFormatting.WHITE)
+						)
+				)
+			}
+			addAll(
+				OpenBlockMenuSupport.messageLore(
+					message.content,
+					if (message.type == SessionMessage.Type.ERROR) ChatFormatting.RED else ChatFormatting.WHITE,
+				)
+			)
 		}
 	}
 }

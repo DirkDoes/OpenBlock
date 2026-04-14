@@ -2,6 +2,7 @@ package me.wanttobee.openblock.benchmarking
 
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
+import com.google.gson.annotations.SerializedName
 import me.wanttobee.openblock.OpenBlock
 import me.wanttobee.openblock.ai.AiService
 import me.wanttobee.openblock.ai.Providers
@@ -166,8 +167,10 @@ object BenchmarkRunsManager {
 					tokenUsage = TokenUsageSummary(
 						inputTokens = run.inputTokens,
 						outputTokens = run.outputTokens,
-						cachedTokens = run.cachedTokens,
+						cachedInputTokens = run.cachedInputTokens,
+						reasoningTokens = run.reasoningTokens,
 					),
+					generationDurationMillis = run.generationDurationMillis,
 				)
 			}
 		)
@@ -254,7 +257,12 @@ object BenchmarkRunsManager {
 				tokenUsage = TokenUsageSummary(
 					inputTokens = cache.total.inputTokens,
 					outputTokens = cache.total.outputTokens,
-					cachedTokens = cache.total.cachedTokens,
+					cachedInputTokens = cache.total.cachedInputTokens,
+					reasoningTokens = cache.total.reasoningTokens,
+				),
+				generationDuration = GenerationDurationSummary(
+					totalGenerationDurationMillis = cache.total.totalGenerationDurationMillis,
+					measuredRunCount = cache.total.measuredRunCount,
 				),
 				tagScores = cache.tags.map { tag ->
 					TagScore(
@@ -400,6 +408,7 @@ object BenchmarkRunsManager {
 		val runs = loadPresetResults(providerName, modelName, benchmarkPath)
 			.map(PersistedPresetResults::runs)
 			.getOrElse { return Result.failure(it) }
+		val consideredRuns = consideredRuns(runs, maxRuns)
 		val score = scoreForRuns(runs, maxRuns)
 		val tagScores = BenchmarkPresetManager.selectedTagIds(pathSegments, entry)
 			.map { tagIds ->
@@ -417,11 +426,8 @@ object BenchmarkRunsManager {
 			EntrySummary(
 				entry = entry,
 				total = score,
-				tokenUsage = TokenUsageSummary(
-					inputTokens = runs.sumOf(RecordedRun::inputTokens),
-					outputTokens = runs.sumOf(RecordedRun::outputTokens),
-					cachedTokens = runs.sumOf(RecordedRun::cachedTokens),
-				),
+				tokenUsage = tokenUsageForRuns(consideredRuns),
+				generationDuration = generationDurationForRuns(consideredRuns),
 				tagScores = tagScores,
 			)
 		)
@@ -447,6 +453,7 @@ object BenchmarkRunsManager {
 				entry = entry,
 				total = aggregateScores(childSummaries.map(EntrySummary::total)),
 				tokenUsage = aggregateTokenUsage(childSummaries.map(EntrySummary::tokenUsage)),
+				generationDuration = aggregateGenerationDurations(childSummaries.map(EntrySummary::generationDuration)),
 				tagScores = aggregateTagScores(childSummaries.flatMap(EntrySummary::tagScores)),
 			)
 		)
@@ -475,6 +482,7 @@ object BenchmarkRunsManager {
 			val runs = loadPresetResults(providerName, modelName, preset.benchmarkPath)
 				.map(PersistedPresetResults::runs)
 				.getOrElse { return Result.failure(it) }
+			val consideredRuns = consideredRuns(runs, maxRuns)
 			val score = scoreForRuns(
 				runs,
 				maxRuns,
@@ -482,11 +490,8 @@ object BenchmarkRunsManager {
 			val tagIds = BenchmarkPresetManager.selectedTagIds(preset.pathSegments, preset.entry).getOrElse { return Result.failure(it) }
 			PresetScore(
 				score = score,
-				tokenUsage = TokenUsageSummary(
-					inputTokens = runs.sumOf(RecordedRun::inputTokens),
-					outputTokens = runs.sumOf(RecordedRun::outputTokens),
-					cachedTokens = runs.sumOf(RecordedRun::cachedTokens),
-				),
+				tokenUsage = tokenUsageForRuns(consideredRuns),
+				generationDuration = generationDurationForRuns(consideredRuns),
 				tagIds = tagIds.sorted(),
 			)
 		}
@@ -509,7 +514,10 @@ object BenchmarkRunsManager {
 					complete = totalScore.complete,
 					inputTokens = presetSummaries.sumOf { preset -> preset.tokenUsage.inputTokens },
 					outputTokens = presetSummaries.sumOf { preset -> preset.tokenUsage.outputTokens },
-					cachedTokens = presetSummaries.sumOf { preset -> preset.tokenUsage.cachedTokens },
+					cachedInputTokens = presetSummaries.sumOf { preset -> preset.tokenUsage.cachedInputTokens },
+					reasoningTokens = presetSummaries.sumOf { preset -> preset.tokenUsage.reasoningTokens },
+					totalGenerationDurationMillis = presetSummaries.sumOf { preset -> preset.generationDuration.totalGenerationDurationMillis },
+					measuredRunCount = presetSummaries.sumOf { preset -> preset.generationDuration.measuredRunCount },
 				),
 				tags = groupedTags.entries
 					.map { (tagId, scores) ->
@@ -545,7 +553,7 @@ object BenchmarkRunsManager {
 	}
 
 	private fun scoreForRuns(runs: List<RecordedRun>, maxRuns: Int): ScoreSummary {
-		val consideredRuns = sortedRuns(runs).take(maxRuns)
+		val consideredRuns = consideredRuns(runs, maxRuns)
 		val statuses = consideredRuns.map { run -> validationStatus(run.validationStatus, run.success) }
 		val successCount = statuses.count { status -> status == RunValidationStatus.SUCCESS }
 		return scoreSummary(
@@ -594,8 +602,37 @@ object BenchmarkRunsManager {
 		return TokenUsageSummary(
 			inputTokens = tokenUsages.sumOf(TokenUsageSummary::inputTokens),
 			outputTokens = tokenUsages.sumOf(TokenUsageSummary::outputTokens),
-			cachedTokens = tokenUsages.sumOf(TokenUsageSummary::cachedTokens),
+			cachedInputTokens = tokenUsages.sumOf(TokenUsageSummary::cachedInputTokens),
+			reasoningTokens = tokenUsages.sumOf(TokenUsageSummary::reasoningTokens),
 		)
+	}
+
+	private fun aggregateGenerationDurations(durations: List<GenerationDurationSummary>): GenerationDurationSummary {
+		return GenerationDurationSummary(
+			totalGenerationDurationMillis = durations.sumOf(GenerationDurationSummary::totalGenerationDurationMillis),
+			measuredRunCount = durations.sumOf(GenerationDurationSummary::measuredRunCount),
+		)
+	}
+
+	private fun tokenUsageForRuns(runs: List<RecordedRun>): TokenUsageSummary {
+		return TokenUsageSummary(
+			inputTokens = runs.sumOf(RecordedRun::inputTokens),
+			outputTokens = runs.sumOf(RecordedRun::outputTokens),
+			cachedInputTokens = runs.sumOf(RecordedRun::cachedInputTokens),
+			reasoningTokens = runs.sumOf(RecordedRun::reasoningTokens),
+		)
+	}
+
+	private fun generationDurationForRuns(runs: List<RecordedRun>): GenerationDurationSummary {
+		val measuredRuns = runs.map(RecordedRun::generationDurationMillis).filter { duration -> duration > 0L }
+		return GenerationDurationSummary(
+			totalGenerationDurationMillis = measuredRuns.sum(),
+			measuredRunCount = measuredRuns.size,
+		)
+	}
+
+	private fun consideredRuns(runs: List<RecordedRun>, maxRuns: Int): List<RecordedRun> {
+		return sortedRuns(runs).take(maxRuns)
 	}
 
 	private fun scoreSummary(
@@ -858,6 +895,7 @@ object BenchmarkRunsManager {
 		val model: ModelReference,
 		val total: ScoreSummary,
 		val tokenUsage: TokenUsageSummary,
+		val generationDuration: GenerationDurationSummary,
 		val tagScores: List<TagScore>,
 	)
 
@@ -865,14 +903,24 @@ object BenchmarkRunsManager {
 		val entry: BenchmarkCatalogManager.CatalogEntry,
 		val total: ScoreSummary,
 		val tokenUsage: TokenUsageSummary,
+		val generationDuration: GenerationDurationSummary,
 		val tagScores: List<TagScore>,
 	)
 
 	data class TokenUsageSummary(
 		val inputTokens: Long = 0,
 		val outputTokens: Long = 0,
-		val cachedTokens: Long = 0,
+		val cachedInputTokens: Long = 0,
+		val reasoningTokens: Long = 0,
 	)
+
+	data class GenerationDurationSummary(
+		val totalGenerationDurationMillis: Long = 0,
+		val measuredRunCount: Int = 0,
+	) {
+		val averageGenerationDurationMillis: Long?
+			get() = if (measuredRunCount <= 0) null else totalGenerationDurationMillis / measuredRunCount
+	}
 
 	data class ScoreSummary(
 		val successCount: Int,
@@ -910,7 +958,10 @@ object BenchmarkRunsManager {
 		val build: List<BenchmarkPresetManager.CapturedBuildBlock>,
 		val inputTokens: Long = 0,
 		val outputTokens: Long = 0,
-		val cachedTokens: Long = 0,
+		@SerializedName(value = "cachedInputTokens", alternate = ["cachedTokens"])
+		val cachedInputTokens: Long = 0,
+		val reasoningTokens: Long = 0,
+		val generationDurationMillis: Long = 0,
 	) {
 		constructor(
 			benchmarkPath: List<String>,
@@ -933,7 +984,9 @@ object BenchmarkRunsManager {
 			build = build,
 			inputTokens = 0,
 			outputTokens = 0,
-			cachedTokens = 0,
+			cachedInputTokens = 0,
+			reasoningTokens = 0,
+			generationDurationMillis = 0,
 		)
 	}
 
@@ -944,6 +997,7 @@ object BenchmarkRunsManager {
 		val considered: Boolean,
 		val status: RunValidationStatus,
 		val tokenUsage: TokenUsageSummary,
+		val generationDurationMillis: Long,
 	)
 
 	data class ActiveRun(
@@ -994,7 +1048,11 @@ object BenchmarkRunsManager {
 		val complete: Boolean = false,
 		val inputTokens: Long = 0,
 		val outputTokens: Long = 0,
-		val cachedTokens: Long = 0,
+		@SerializedName(value = "cachedInputTokens", alternate = ["cachedTokens"])
+		val cachedInputTokens: Long = 0,
+		val reasoningTokens: Long = 0,
+		val totalGenerationDurationMillis: Long = 0,
+		val measuredRunCount: Int = 0,
 	)
 
 	private data class PersistedCacheTagScore(
@@ -1021,6 +1079,7 @@ object BenchmarkRunsManager {
 	private data class PresetScore(
 		val score: ScoreSummary,
 		val tokenUsage: TokenUsageSummary,
+		val generationDuration: GenerationDurationSummary,
 		val tagIds: List<String>,
 	)
 

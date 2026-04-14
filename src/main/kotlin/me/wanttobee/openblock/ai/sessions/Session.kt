@@ -34,6 +34,7 @@ class Session(
 	private var nextGenerationId: Long = 1L
 	private val activeGenerationIds = linkedSetOf<Long>()
 	private val interruptedGenerationIds = linkedSetOf<Long>()
+	private val generationStartedAtMillis = linkedMapOf<Long, Long>()
 
 	fun messages(): List<SessionMessage> = messages.toList()
 	fun sandbox(): Sandbox? = sandbox
@@ -64,6 +65,10 @@ class Session(
 			systemPrompt = systemPrompt,
 			userMessageCount = userMessageCount(),
 			lastResponseProviderName = lastResponseProviderName(),
+			inputTokens = 0,
+			outputTokens = 0,
+			cachedInputTokens = 0,
+			reasoningTokens = 0,
 		)
 	}
 	fun effectiveSystemPrompt(): Result<String> {
@@ -134,6 +139,7 @@ class Session(
 	fun beginGeneration(): Long {
 		val generationId = nextGenerationId++
 		activeGenerationIds += generationId
+		generationStartedAtMillis[generationId] = System.currentTimeMillis()
 		return generationId
 	}
 
@@ -152,6 +158,7 @@ class Session(
 	fun finishGeneration(generationId: Long) {
 		activeGenerationIds -= generationId
 		interruptedGenerationIds -= generationId
+		generationStartedAtMillis -= generationId
 	}
 
 	fun addAssistantMessage(
@@ -159,6 +166,7 @@ class Session(
 		usage: SessionTokenUsage? = null,
 		providerName: String? = null,
 		modelName: String? = null,
+		generationId: Long? = null,
 	) {
 		val message = SessionMessage(
 			type = SessionMessage.Type.ASSISTANT,
@@ -166,6 +174,7 @@ class Session(
 			usage = usage,
 			providerName = providerName,
 			modelName = modelName,
+			generationDurationMillis = generationDurationMillis(generationId),
 		)
 		messages += message
 		SessionLogger.logMessage(this, message)
@@ -184,6 +193,7 @@ class Session(
 		usage: SessionTokenUsage? = null,
 		providerName: String? = null,
 		modelName: String? = null,
+		generationId: Long? = null,
 	) {
 		val message = SessionMessage(
 			type = SessionMessage.Type.ERROR,
@@ -191,6 +201,7 @@ class Session(
 			usage = usage,
 			providerName = providerName,
 			modelName = modelName,
+			generationDurationMillis = generationDurationMillis(generationId),
 		)
 		messages += message
 		SessionLogger.logMessage(this, message)
@@ -258,6 +269,12 @@ class Session(
 
 	private fun persistState() {
 		AiSessionManager.updateSession(this)
+	}
+
+	@Synchronized
+	private fun generationDurationMillis(generationId: Long?): Long? {
+		val startedAt = generationId?.let(generationStartedAtMillis::get) ?: return null
+		return (System.currentTimeMillis() - startedAt).coerceAtLeast(0L)
 	}
 
 }

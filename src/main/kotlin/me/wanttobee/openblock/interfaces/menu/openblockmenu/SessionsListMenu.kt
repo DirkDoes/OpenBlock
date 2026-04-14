@@ -72,6 +72,14 @@ internal class SessionsListMenu(
 				Component.literal("User messages: ").withStyle(ChatFormatting.GRAY)
 					.append(Component.literal(session.userMessageCount.toString()).withStyle(ChatFormatting.WHITE))
 			)
+			addAll(
+				OpenBlockMenuSupport.standardTokenLore(
+					inputTokens = session.inputTokens,
+					outputTokens = session.outputTokens,
+					cachedInputTokens = session.cachedInputTokens,
+					reasoningTokens = session.reasoningTokens,
+				)
+			)
 		},
 		count = session.userMessageCount.coerceIn(1, 64),
 		glint = selected,

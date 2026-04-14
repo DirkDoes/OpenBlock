@@ -1,6 +1,12 @@
 package me.wanttobee.openblock.ai.sessions
 
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonDeserializationContext
+import com.google.gson.JsonDeserializer
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.JsonSerializationContext
+import com.google.gson.JsonSerializer
 import me.wanttobee.openblock.OpenBlock
 import me.wanttobee.openblock.ai.sessions.base.SessionMessage
 import me.wanttobee.openblock.ai.sessions.base.SessionSummary
@@ -29,6 +35,7 @@ object SessionLogger {
 	private val gson = GsonBuilder()
 		.setPrettyPrinting()
 		.serializeNulls()
+		.registerTypeAdapter(SessionTokenUsage::class.java, SessionTokenUsageJsonAdapter)
 		.create()
 	private val timestampFormatter: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
@@ -110,19 +117,14 @@ object SessionLogger {
 				.filter { path -> Files.isRegularFile(path) && path.fileName.toString().endsWith(".json") }
 				.mapNotNull(::readSnapshot)
 				.sortedByDescending(SessionSnapshot::updatedAt)
-				.map { snapshot ->
-					SessionSummary(
-						id = UUID.fromString(snapshot.sessionId),
-						ownerPlayerId = snapshot.ownerPlayerId?.let(UUID::fromString),
-						boundPlayerId = snapshot.boundPlayerId?.let(UUID::fromString),
-						systemPrompt = snapshot.systemPrompt,
-						userMessageCount = snapshot.summary.userMessageCount,
-						lastResponseProviderName = snapshot.messages.lastOrNull { message ->
-							message.type == SessionMessage.Type.ASSISTANT.name && !message.providerName.isNullOrBlank()
-						}?.providerName,
-					)
-				}
+				.map(::summaryFromSnapshot)
 		})
+	}
+
+	fun loadSessionSummary(storagePath: String, sessionId: UUID): Result<SessionSummary> {
+		val snapshot = readSnapshot(logFile(storagePath, sessionId))
+			?: return Result.failure(NoSuchElementException("Unknown session: $sessionId"))
+		return Result.success(summaryFromSnapshot(snapshot))
 	}
 
 	fun loadSession(ownerPlayerId: UUID, sessionId: UUID): Result<Session> {
@@ -153,12 +155,35 @@ object SessionLogger {
 	fun tokenTotals(storagePath: String, sessionId: UUID): Result<TokenTotals> {
 		val snapshot = readSnapshot(logFile(storagePath, sessionId))
 			?: return Result.failure(NoSuchElementException("Unknown session: $sessionId"))
-		return Result.success(
-			TokenTotals(
-				inputTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.inputTokensOrZero() },
-				outputTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.expandedOutputTokensOrZero() },
-				cachedTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.cachedTokensOrZero() },
-			)
+		return Result.success(tokenTotals(snapshot))
+	}
+
+	private fun summaryFromSnapshot(snapshot: SessionSnapshot): SessionSummary {
+		val totals = tokenTotals(snapshot)
+		return SessionSummary(
+			id = UUID.fromString(snapshot.sessionId),
+			ownerPlayerId = snapshot.ownerPlayerId?.let(UUID::fromString),
+			boundPlayerId = snapshot.boundPlayerId?.let(UUID::fromString),
+			systemPrompt = snapshot.systemPrompt,
+			userMessageCount = snapshot.summary.userMessageCount,
+			lastResponseProviderName = snapshot.messages.lastOrNull { message ->
+				message.type == SessionMessage.Type.ASSISTANT.name && !message.providerName.isNullOrBlank()
+			}?.providerName,
+			inputTokens = totals.inputTokens,
+			outputTokens = totals.outputTokens,
+			cachedInputTokens = totals.cachedInputTokens,
+			reasoningTokens = totals.reasoningTokens,
+		)
+	}
+
+	private fun tokenTotals(snapshot: SessionSnapshot): TokenTotals {
+		return TokenTotals(
+			inputTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.inputTokensOrZero() },
+			outputTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.outputTokensOrZero() },
+			totalTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.totalTokensOrZero() },
+			cachedInputTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.cachedInputTokensOrZero() },
+			reasoningTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.reasoningTokensOrZero() },
+			generationDurationMillis = snapshot.messages.sumOf { message -> message.generationDurationMillis ?: 0L },
 		)
 	}
 
@@ -191,6 +216,7 @@ object SessionLogger {
 					usage = message.usage,
 					providerName = message.providerName,
 					modelName = message.modelName,
+					generationDurationMillis = message.generationDurationMillis,
 				)
 			)
 		}
@@ -220,7 +246,7 @@ object SessionLogger {
 	private fun createSnapshot(session: Session): SessionSnapshot {
 		val now = timestamp()
 		return SessionSnapshot(
-			version = 5,
+			version = 6,
 			sessionId = session.id.toString(),
 			ownerPlayerId = session.ownerPlayerId?.toString(),
 			storagePath = session.storagePath,
@@ -255,6 +281,7 @@ object SessionLogger {
 				usage = message.usage,
 				providerName = message.providerName,
 				modelName = message.modelName,
+				generationDurationMillis = message.generationDurationMillis,
 			)
 		}.toMutableList()
 	}
@@ -454,6 +481,7 @@ object SessionLogger {
 		val usage: SessionTokenUsage? = null,
 		val providerName: String? = null,
 		val modelName: String? = null,
+		val generationDurationMillis: Long? = null,
 	)
 
 	private data class ProviderCallEntry(
@@ -499,23 +527,83 @@ object SessionLogger {
 	data class TokenTotals(
 		val inputTokens: Long = 0,
 		val outputTokens: Long = 0,
-		val cachedTokens: Long = 0,
+		val totalTokens: Long = 0,
+		val cachedInputTokens: Long = 0,
+		val reasoningTokens: Long = 0,
+		val generationDurationMillis: Long = 0,
 	)
 
 	private fun SessionTokenUsage?.inputTokensOrZero(): Long {
 		return this?.inputTokens ?: 0
 	}
 
-	private fun SessionTokenUsage?.expandedOutputTokensOrZero(): Long {
-		return (this?.outputTokens ?: 0) +
-			(this?.reasoningTokens ?: 0) +
-			(this?.thoughtsTokens ?: 0) +
-			(this?.toolUsePromptTokens ?: 0)
+	private fun SessionTokenUsage?.outputTokensOrZero(): Long {
+		return this?.outputTokens ?: 0
 	}
 
-	private fun SessionTokenUsage?.cachedTokensOrZero(): Long {
-		return (this?.cachedInputTokens ?: 0) +
-			(this?.cacheCreationInputTokens ?: 0) +
-			(this?.cacheReadInputTokens ?: 0)
+	private fun SessionTokenUsage?.totalTokensOrZero(): Long {
+		return this?.totalTokens ?: 0
+	}
+
+	private fun SessionTokenUsage?.cachedInputTokensOrZero(): Long {
+		return this?.cachedInputTokens ?: 0
+	}
+
+	private fun SessionTokenUsage?.reasoningTokensOrZero(): Long {
+		return this?.reasoningTokens ?: 0
+	}
+
+	private object SessionTokenUsageJsonAdapter : JsonSerializer<SessionTokenUsage>, JsonDeserializer<SessionTokenUsage> {
+		override fun serialize(
+			src: SessionTokenUsage?,
+			typeOfSrc: java.lang.reflect.Type?,
+			context: JsonSerializationContext?,
+		): JsonElement {
+			val json = JsonObject()
+			json.addProperty("input_tokens", src?.inputTokens)
+			json.addProperty("output_tokens", src?.outputTokens)
+			json.addProperty("total_tokens", src?.totalTokens)
+			json.addProperty("cached_input_tokens", src?.cachedInputTokens)
+			json.addProperty("reasoning_tokens", src?.reasoningTokens)
+			return json
+		}
+
+		override fun deserialize(
+			json: JsonElement?,
+			typeOfT: java.lang.reflect.Type?,
+			context: JsonDeserializationContext?,
+		): SessionTokenUsage {
+			val source = json?.asJsonObject ?: return SessionTokenUsage()
+			val inputTokens = (source.longOrNull("input_tokens") ?: source.longOrNull("inputTokens"))?.let { baseInput ->
+				baseInput + (source.longOrNull("toolUsePromptTokens") ?: 0L)
+			}
+			val outputTokens = source.longOrNull("output_tokens") ?: source.longOrNull("outputTokens")
+			val totalTokens = source.longOrNull("total_tokens") ?: source.longOrNull("totalTokens")
+			val cachedInputTokens = listOfNotNull(
+				source.longOrNull("cached_input_tokens"),
+				source.longOrNull("cachedInputTokens"),
+			).firstOrNull() ?: listOfNotNull(
+				source.longOrNull("cacheCreationInputTokens"),
+				source.longOrNull("cacheReadInputTokens"),
+			).sum().takeIf { it > 0 }
+			val reasoningTokens = listOfNotNull(
+				source.longOrNull("reasoning_tokens"),
+				source.longOrNull("reasoningTokens"),
+			).firstOrNull() ?: listOfNotNull(
+				source.longOrNull("thoughtsTokens"),
+			).sum().takeIf { it > 0 }
+
+			return SessionTokenUsage(
+				inputTokens = inputTokens,
+				outputTokens = outputTokens,
+				totalTokens = totalTokens,
+				cachedInputTokens = cachedInputTokens,
+				reasoningTokens = reasoningTokens,
+			)
+		}
+
+		private fun JsonObject.longOrNull(key: String): Long? {
+			return get(key)?.takeIf { !it.isJsonNull }?.asLong
+		}
 	}
 }

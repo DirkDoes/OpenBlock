@@ -4,6 +4,7 @@ import me.wanttobee.openblock.benchmarking.BenchmarkCatalogManager
 import me.wanttobee.openblock.benchmarking.BenchmarkRunsManager
 import me.wanttobee.openblock.interfaces.menu.MenuItems
 import me.wanttobee.openblock.interfaces.menu.base.BaseListMenu
+import me.wanttobee.openblock.interfaces.menu.openblockmenu.OpenBlockMenuSupport
 import net.minecraft.ChatFormatting
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerPlayer
@@ -152,13 +153,29 @@ internal class BenchmarkPresetSessionsMenu(
 			else -> Items.CYAN_WOOL
 		},
 		name = Component.literal("Session ${session.sessionId.toString().take(8)}").withStyle(ChatFormatting.WHITE),
-		lore = listOf(
-			Component.literal("ran: ${formattedTimestamp(session.recordedAt)}").withStyle(ChatFormatting.GRAY),
-			Component.literal("status: ${statusLabel(session)}").withStyle(ChatFormatting.GRAY),
-			Component.literal("input tokens: ${session.tokenUsage.inputTokens}").withStyle(ChatFormatting.GRAY),
-			Component.literal("output tokens: ${session.tokenUsage.outputTokens}").withStyle(ChatFormatting.GRAY),
-			Component.literal("cached tokens: ${session.tokenUsage.cachedTokens}").withStyle(ChatFormatting.GRAY),
-		),
+		lore = buildList {
+			add(Component.literal("ran: ${formattedTimestamp(session.recordedAt)}").withStyle(ChatFormatting.GRAY))
+			add(Component.literal("status: ${statusLabel(session)}").withStyle(ChatFormatting.GRAY))
+			add(
+				Component.literal("time: ").withStyle(ChatFormatting.GRAY)
+					.append(
+						Component.literal(
+							session.generationDurationMillis
+								.takeIf { it > 0L }
+								?.let(OpenBlockMenuSupport::formatGenerationDuration)
+								?: "n/a"
+						).withStyle(ChatFormatting.WHITE)
+					)
+			)
+			addAll(
+				OpenBlockMenuSupport.standardTokenLore(
+					inputTokens = session.tokenUsage.inputTokens,
+					outputTokens = session.tokenUsage.outputTokens,
+					cachedInputTokens = session.tokenUsage.cachedInputTokens,
+					reasoningTokens = session.tokenUsage.reasoningTokens,
+				)
+			)
+		},
 		glint = selectedSessionId == session.sessionId,
 	)
 
