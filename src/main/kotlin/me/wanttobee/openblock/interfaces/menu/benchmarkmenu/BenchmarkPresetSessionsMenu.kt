@@ -173,6 +173,7 @@ internal class BenchmarkPresetSessionsMenu(
 					outputTokens = session.tokenUsage.outputTokens,
 					cachedInputTokens = session.tokenUsage.cachedInputTokens,
 					reasoningTokens = session.tokenUsage.reasoningTokens,
+					estimatedCost = session.tokenUsage.estimatedCost,
 				)
 			)
 		},

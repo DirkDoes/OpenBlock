@@ -1,6 +1,7 @@
 package me.wanttobee.openblock.ai
 
 import me.wanttobee.openblock.ai.sessions.AiModel
+import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
 import me.wanttobee.openblock.ai.providers.AiProvider
 import me.wanttobee.openblock.ai.providers.AnthropicProvider
 import me.wanttobee.openblock.ai.providers.GoogleAiProvider
@@ -50,5 +51,15 @@ object Providers {
 		return all.firstOrNull { provider -> provider.name.equals(providerName, ignoreCase = true) }
 			?.let(Result.Companion::success)
 			?: Result.failure(NoSuchElementException("Unknown AI provider: $providerName"))
+	}
+
+	fun estimateCost(providerName: String, modelName: String, usage: SessionTokenUsage): Result<Double> {
+		val provider = getProviderByName(providerName).getOrElse { return Result.failure(it) }
+		return provider.estimateCost(modelName, usage)
+	}
+
+	fun estimateCost(providerName: String, modelName: String, usages: List<SessionTokenUsage>): Result<Double> {
+		val provider = getProviderByName(providerName).getOrElse { return Result.failure(it) }
+		return provider.estimateCost(modelName, usages)
 	}
 }

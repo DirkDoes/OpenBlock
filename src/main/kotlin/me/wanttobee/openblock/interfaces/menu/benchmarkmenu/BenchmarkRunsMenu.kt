@@ -71,6 +71,7 @@ internal class BenchmarkRunsMenu(
 				name = Component.literal("Color Legend").withStyle(ChatFormatting.YELLOW),
 				lore = listOf(
 					legendLine("white:", ChatFormatting.WHITE, "no tests run yet"),
+					legendLine("gray:", ChatFormatting.GRAY, "ignored, outside max runs"),
 					legendLine("cyan:", ChatFormatting.AQUA, "there are unvalidated runs"),
 					legendLine("lime:", ChatFormatting.GREEN, "all tests succeeded"),
 					legendLine("yellow:", ChatFormatting.YELLOW, "some succeeded, some failed"),

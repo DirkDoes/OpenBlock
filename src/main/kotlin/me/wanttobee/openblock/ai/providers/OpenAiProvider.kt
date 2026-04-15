@@ -48,6 +48,46 @@ object OpenAiProvider : AiProvider {
 		allowsNone = false,
 	)
 	private val nonReasoningSupport = AiModel.ReasoningSupport.unsupported()
+	private val modelPricing = mapOf(
+		"gpt-5.4" to thresholdPricing(
+			defaultInput = 2.50,
+			defaultOutput = 15.00,
+			defaultCachedInput = 0.25,
+			thresholdInputTokens = 272_000L,
+			thresholdInput = 5.00,
+			thresholdOutput = 22.50,
+			thresholdCachedInput = 0.50,
+			thresholdReasoning = 22.50,
+		),
+		"gpt-5.4-mini" to flatRatePricing(0.75, 4.50, 0.075),
+		"gpt-5.4-pro" to thresholdPricing(
+			defaultInput = 30.00,
+			defaultOutput = 180.00,
+			thresholdInputTokens = 272_000L,
+			thresholdInput = 60.00,
+			thresholdOutput = 270.00,
+			thresholdReasoning = 270.00,
+		),
+		"gpt-5.4-nano" to flatRatePricing(0.20, 1.25, 0.02),
+		"gpt-5" to flatRatePricing(1.25, 10.00, 0.125),
+		"gpt-5-2025-08-07" to flatRatePricing(1.25, 10.00, 0.125),
+		"gpt-5-mini" to flatRatePricing(0.25, 2.00, 0.025),
+		"gpt-5-nano" to flatRatePricing(0.05, 0.40, 0.005),
+		"gpt-5-nano-2025-08-07" to flatRatePricing(0.05, 0.40, 0.005),
+		"gpt-4.1" to flatRatePricing(2.00, 8.00, 0.50),
+		"gpt-5-codex" to flatRatePricing(1.25, 10.00, 0.125),
+		"gpt-5.3-codex" to flatRatePricing(1.75, 14.00, 0.175),
+		"gpt-5.2-codex" to flatRatePricing(1.75, 14.00, 0.175),
+		"gpt-5.2" to flatRatePricing(1.75, 14.00, 0.175),
+		"gpt-5.2-2025-12-11" to flatRatePricing(1.75, 14.00, 0.175),
+		"gpt-5.1" to flatRatePricing(1.25, 10.00, 0.125),
+		"gpt-5.1-2025-11-13" to flatRatePricing(1.25, 10.00, 0.125),
+		"gpt-5.1-codex-mini" to flatRatePricing(0.25, 2.00, 0.025),
+		"o3" to flatRatePricing(2.00, 8.00, 0.50),
+		"o3-2025-04-16" to flatRatePricing(2.00, 8.00, 0.50),
+		"o4-mini" to flatRatePricing(1.10, 4.40, 0.275),
+		"o4-mini-2025-04-16" to flatRatePricing(1.10, 4.40, 0.275),
+	)
 
 	override val name = "openai"
 	override val displayName = "OpenAI"
@@ -78,6 +118,61 @@ object OpenAiProvider : AiProvider {
 		withClient { client ->
 			client.models().retrieve(defaultModel)
 		}.getOrThrow()
+	}
+
+	override fun pricing(modelName: String): Result<ModelTokenPricing> {
+		return modelPricing.entries.firstOrNull { (entryModelName, _) ->
+			entryModelName.equals(modelName, ignoreCase = true)
+		}?.value?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("OpenAI has no pricing entry for $modelName."))
+	}
+
+	private fun flatRatePricing(
+		input: Double,
+		output: Double,
+		cachedInput: Double? = null,
+		reasoning: Double? = null,
+	): ModelTokenPricing {
+		return ModelTokenPricing(
+			tiers = listOf(
+				ModelTokenPricing.Tier(
+					inputUsdPerMillionTokens = input,
+					outputUsdPerMillionTokens = output,
+					cachedInputUsdPerMillionTokens = cachedInput,
+					reasoningUsdPerMillionTokens = reasoning,
+				)
+			)
+		)
+	}
+
+	private fun thresholdPricing(
+		defaultInput: Double,
+		defaultOutput: Double,
+		defaultCachedInput: Double? = null,
+		defaultReasoning: Double? = null,
+		thresholdInputTokens: Long,
+		thresholdInput: Double,
+		thresholdOutput: Double,
+		thresholdCachedInput: Double? = null,
+		thresholdReasoning: Double? = null,
+	): ModelTokenPricing {
+		return ModelTokenPricing(
+			tiers = listOf(
+				ModelTokenPricing.Tier(
+					inputUsdPerMillionTokens = defaultInput,
+					outputUsdPerMillionTokens = defaultOutput,
+					cachedInputUsdPerMillionTokens = defaultCachedInput,
+					reasoningUsdPerMillionTokens = defaultReasoning,
+				),
+				ModelTokenPricing.Tier(
+					inputUsdPerMillionTokens = thresholdInput,
+					outputUsdPerMillionTokens = thresholdOutput,
+					cachedInputUsdPerMillionTokens = thresholdCachedInput,
+					reasoningUsdPerMillionTokens = thresholdReasoning,
+					inputTokensThreshold = thresholdInputTokens,
+				),
+			)
+		)
 	}
 
 	override fun applyReasoning(model: AiModel, value: String?): Result<AiModel> {

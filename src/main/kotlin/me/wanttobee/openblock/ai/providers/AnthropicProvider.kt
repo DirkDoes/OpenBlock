@@ -32,6 +32,50 @@ object AnthropicProvider : AiProvider {
 		numericExamples = listOf(1024, 4096, 8192),
 		allowsNone = true,
 	)
+	private val modelPricing = mapOf(
+		"claude-haiku-4-5" to flatRatePricing(
+			input = 1.00,
+			output = 5.00,
+			cachedInput = 0.10,
+			cacheWrite5m = 1.25,
+			cacheWrite1h = 2.00,
+		),
+		"claude-sonnet-4-6" to flatRatePricing(
+			input = 3.00,
+			output = 15.00,
+			cachedInput = 0.30,
+			cacheWrite5m = 3.75,
+			cacheWrite1h = 6.00,
+		),
+		"claude-opus-4-6" to flatRatePricing(
+			input = 5.00,
+			output = 25.00,
+			cachedInput = 0.50,
+			cacheWrite5m = 6.25,
+			cacheWrite1h = 10.00,
+		),
+		"claude-opus-4-5-20251101" to flatRatePricing(
+			input = 5.00,
+			output = 25.00,
+			cachedInput = 0.50,
+			cacheWrite5m = 6.25,
+			cacheWrite1h = 10.00,
+		),
+		"claude-sonnet-4-5-20250929" to flatRatePricing(
+			input = 3.00,
+			output = 15.00,
+			cachedInput = 0.30,
+			cacheWrite5m = 3.75,
+			cacheWrite1h = 6.00,
+		),
+		"claude-sonnet-4-20250514" to flatRatePricing(
+			input = 3.00,
+			output = 15.00,
+			cachedInput = 0.30,
+			cacheWrite5m = 3.75,
+			cacheWrite1h = 6.00,
+		),
+	)
 
 	override val name = "claude"
 	override val displayName = "Claude"
@@ -53,6 +97,35 @@ object AnthropicProvider : AiProvider {
 		withClient { client ->
 			client.models().retrieve(defaultModel)
 		}.getOrThrow()
+	}
+
+	override fun pricing(modelName: String): Result<ModelTokenPricing> {
+		return modelPricing.entries.firstOrNull { (entryModelName, _) ->
+			entryModelName.equals(modelName, ignoreCase = true)
+		}?.value?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("Claude has no pricing entry for $modelName."))
+	}
+
+	private fun flatRatePricing(
+		input: Double,
+		output: Double,
+		cachedInput: Double? = null,
+		reasoning: Double? = null,
+		cacheWrite5m: Double? = null,
+		cacheWrite1h: Double? = null,
+	): ModelTokenPricing {
+		return ModelTokenPricing(
+			tiers = listOf(
+				ModelTokenPricing.Tier(
+					inputUsdPerMillionTokens = input,
+					outputUsdPerMillionTokens = output,
+					cachedInputUsdPerMillionTokens = cachedInput,
+					reasoningUsdPerMillionTokens = reasoning,
+					cacheWrite5mUsdPerMillionTokens = cacheWrite5m,
+					cacheWrite1hUsdPerMillionTokens = cacheWrite1h,
+				)
+			)
+		)
 	}
 
 	override fun applyReasoning(model: AiModel, value: String?): Result<AiModel> {
@@ -430,13 +503,11 @@ object AnthropicProvider : AiProvider {
 			cacheReadInputTokens,
 		).sum().takeIf { it > 0 }
 		val cachedInputTokens = listOfNotNull(
-			cacheCreationInputTokens,
 			cacheReadInputTokens,
 		).sum().takeIf { it > 0 }
 		val normalizedInputTokens = listOfNotNull(
 			inputTokens,
 			cacheCreationInputTokens,
-			cacheReadInputTokens,
 		).sum().takeIf { it > 0 }
 		return Result.success(SessionTokenUsage(
 			inputTokens = normalizedInputTokens,

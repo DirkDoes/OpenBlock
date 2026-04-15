@@ -78,6 +78,7 @@ internal class SessionsListMenu(
 					outputTokens = session.outputTokens,
 					cachedInputTokens = session.cachedInputTokens,
 					reasoningTokens = session.reasoningTokens,
+					estimatedCost = session.estimatedCost,
 				)
 			)
 		},

@@ -13,4 +13,5 @@ data class SessionSummary(
 	val outputTokens: Long = 0,
 	val cachedInputTokens: Long = 0,
 	val reasoningTokens: Long = 0,
+	val estimatedCost: Double? = null,
 )

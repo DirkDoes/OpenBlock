@@ -169,6 +169,7 @@ object BenchmarkRunsManager {
 						outputTokens = run.outputTokens,
 						cachedInputTokens = run.cachedInputTokens,
 						reasoningTokens = run.reasoningTokens,
+						estimatedCost = run.estimatedCost,
 					),
 					generationDurationMillis = run.generationDurationMillis,
 				)
@@ -259,6 +260,7 @@ object BenchmarkRunsManager {
 					outputTokens = cache.total.outputTokens,
 					cachedInputTokens = cache.total.cachedInputTokens,
 					reasoningTokens = cache.total.reasoningTokens,
+					estimatedCost = cache.total.estimatedCost,
 				),
 				generationDuration = GenerationDurationSummary(
 					totalGenerationDurationMillis = cache.total.totalGenerationDurationMillis,
@@ -516,6 +518,7 @@ object BenchmarkRunsManager {
 					outputTokens = presetSummaries.sumOf { preset -> preset.tokenUsage.outputTokens },
 					cachedInputTokens = presetSummaries.sumOf { preset -> preset.tokenUsage.cachedInputTokens },
 					reasoningTokens = presetSummaries.sumOf { preset -> preset.tokenUsage.reasoningTokens },
+					estimatedCost = presetSummaries.sumOf { preset -> preset.tokenUsage.estimatedCost },
 					totalGenerationDurationMillis = presetSummaries.sumOf { preset -> preset.generationDuration.totalGenerationDurationMillis },
 					measuredRunCount = presetSummaries.sumOf { preset -> preset.generationDuration.measuredRunCount },
 				),
@@ -604,6 +607,7 @@ object BenchmarkRunsManager {
 			outputTokens = tokenUsages.sumOf(TokenUsageSummary::outputTokens),
 			cachedInputTokens = tokenUsages.sumOf(TokenUsageSummary::cachedInputTokens),
 			reasoningTokens = tokenUsages.sumOf(TokenUsageSummary::reasoningTokens),
+			estimatedCost = tokenUsages.sumOf(TokenUsageSummary::estimatedCost),
 		)
 	}
 
@@ -620,6 +624,7 @@ object BenchmarkRunsManager {
 			outputTokens = runs.sumOf(RecordedRun::outputTokens),
 			cachedInputTokens = runs.sumOf(RecordedRun::cachedInputTokens),
 			reasoningTokens = runs.sumOf(RecordedRun::reasoningTokens),
+			estimatedCost = runs.sumOf(RecordedRun::estimatedCost),
 		)
 	}
 
@@ -912,6 +917,7 @@ object BenchmarkRunsManager {
 		val outputTokens: Long = 0,
 		val cachedInputTokens: Long = 0,
 		val reasoningTokens: Long = 0,
+		val estimatedCost: Double = 0.0,
 	)
 
 	data class GenerationDurationSummary(
@@ -962,6 +968,7 @@ object BenchmarkRunsManager {
 		val cachedInputTokens: Long = 0,
 		val reasoningTokens: Long = 0,
 		val generationDurationMillis: Long = 0,
+		val estimatedCost: Double = 0.0,
 	) {
 		constructor(
 			benchmarkPath: List<String>,
@@ -987,6 +994,7 @@ object BenchmarkRunsManager {
 			cachedInputTokens = 0,
 			reasoningTokens = 0,
 			generationDurationMillis = 0,
+			estimatedCost = 0.0,
 		)
 	}
 
@@ -1051,6 +1059,7 @@ object BenchmarkRunsManager {
 		@SerializedName(value = "cachedInputTokens", alternate = ["cachedTokens"])
 		val cachedInputTokens: Long = 0,
 		val reasoningTokens: Long = 0,
+		val estimatedCost: Double = 0.0,
 		val totalGenerationDurationMillis: Long = 0,
 		val measuredRunCount: Int = 0,
 	)

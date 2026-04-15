@@ -4,6 +4,7 @@ import me.wanttobee.openblock.ai.AiActionBarManager
 import me.wanttobee.openblock.ai.sessions.AiModel
 import me.wanttobee.openblock.ai.sessions.Session
 import me.wanttobee.openblock.ai.sessions.base.SessionMessage
+import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
 import me.wanttobee.openblock.ai.toolcalling.base.AiTool
 import me.wanttobee.openblock.ai.toolcalling.base.AiToolExecution
 import me.wanttobee.openblock.ai.toolcalling.ToolManager
@@ -21,6 +22,20 @@ interface AiProvider {
 	val progressColorB: Int
 
 	fun ping()
+
+	fun pricing(modelName: String): Result<ModelTokenPricing> {
+		return Result.failure(NoSuchElementException("$displayName has no pricing entry for $modelName."))
+	}
+
+	fun estimateCost(modelName: String, usage: SessionTokenUsage): Result<Double> {
+		return estimateCost(modelName, listOf(usage))
+	}
+
+	fun estimateCost(modelName: String, usages: List<SessionTokenUsage>): Result<Double> {
+		return pricing(modelName).map { pricing ->
+			pricing.estimateCost(usages)
+		}
+	}
 
 	fun startingAction(model: AiModel): String {
 		return if (model.usesReasoning()) "thinking" else "generating"

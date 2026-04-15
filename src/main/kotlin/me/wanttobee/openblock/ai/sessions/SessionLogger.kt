@@ -8,6 +8,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonSerializationContext
 import com.google.gson.JsonSerializer
 import me.wanttobee.openblock.OpenBlock
+import me.wanttobee.openblock.ai.Providers
 import me.wanttobee.openblock.ai.sessions.base.SessionMessage
 import me.wanttobee.openblock.ai.sessions.base.SessionSummary
 import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
@@ -158,6 +159,12 @@ object SessionLogger {
 		return Result.success(tokenTotals(snapshot))
 	}
 
+	fun estimatedCost(storagePath: String, sessionId: UUID): Result<Double> {
+		val snapshot = readSnapshot(logFile(storagePath, sessionId))
+			?: return Result.failure(NoSuchElementException("Unknown session: $sessionId"))
+		return estimatedCost(snapshot)
+	}
+
 	private fun summaryFromSnapshot(snapshot: SessionSnapshot): SessionSummary {
 		val totals = tokenTotals(snapshot)
 		return SessionSummary(
@@ -173,6 +180,7 @@ object SessionLogger {
 			outputTokens = totals.outputTokens,
 			cachedInputTokens = totals.cachedInputTokens,
 			reasoningTokens = totals.reasoningTokens,
+			estimatedCost = estimatedCost(snapshot).getOrNull(),
 		)
 	}
 
@@ -185,6 +193,24 @@ object SessionLogger {
 			reasoningTokens = snapshot.providerCalls.sumOf { entry -> entry.usage.reasoningTokensOrZero() },
 			generationDurationMillis = snapshot.messages.sumOf { message -> message.generationDurationMillis ?: 0L },
 		)
+	}
+
+	private fun estimatedCost(snapshot: SessionSnapshot): Result<Double> {
+		var total = 0.0
+		val groupedUsages = snapshot.providerCalls
+			.mapNotNull { providerCall ->
+				val usage = providerCall.usage ?: return@mapNotNull null
+				(providerCall.provider to providerCall.model) to usage
+			}
+			.groupBy(
+				keySelector = { (providerModel, _) -> providerModel },
+				valueTransform = { (_, usage) -> usage },
+			)
+		for ((providerModel, usages) in groupedUsages) {
+			total += Providers.estimateCost(providerModel.first, providerModel.second, usages)
+				.getOrElse { return Result.failure(it) }
+		}
+		return Result.success(total)
 	}
 
 	private fun restoredSession(snapshot: SessionSnapshot): Result<Session> {
@@ -575,17 +601,14 @@ object SessionLogger {
 		): SessionTokenUsage {
 			val source = json?.asJsonObject ?: return SessionTokenUsage()
 			val inputTokens = (source.longOrNull("input_tokens") ?: source.longOrNull("inputTokens"))?.let { baseInput ->
-				baseInput + (source.longOrNull("toolUsePromptTokens") ?: 0L)
+				baseInput + (source.longOrNull("toolUsePromptTokens") ?: 0L) + (source.longOrNull("cacheCreationInputTokens") ?: 0L)
 			}
 			val outputTokens = source.longOrNull("output_tokens") ?: source.longOrNull("outputTokens")
 			val totalTokens = source.longOrNull("total_tokens") ?: source.longOrNull("totalTokens")
 			val cachedInputTokens = listOfNotNull(
 				source.longOrNull("cached_input_tokens"),
 				source.longOrNull("cachedInputTokens"),
-			).firstOrNull() ?: listOfNotNull(
-				source.longOrNull("cacheCreationInputTokens"),
-				source.longOrNull("cacheReadInputTokens"),
-			).sum().takeIf { it > 0 }
+			).firstOrNull() ?: source.longOrNull("cacheReadInputTokens")
 			val reasoningTokens = listOfNotNull(
 				source.longOrNull("reasoning_tokens"),
 				source.longOrNull("reasoningTokens"),

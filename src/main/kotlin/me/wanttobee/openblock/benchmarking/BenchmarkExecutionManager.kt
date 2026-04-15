@@ -225,6 +225,8 @@ object BenchmarkExecutionManager {
 		val shouldRecord = finishedRun?.deleteSessionOnFinish != true
 		val tokenTotals = SessionLogger.tokenTotals(preparedRun.session.storagePath, preparedRun.session.id)
 			.getOrDefault(me.wanttobee.openblock.ai.sessions.SessionLogger.TokenTotals())
+		val estimatedCost = SessionLogger.estimatedCost(preparedRun.session.storagePath, preparedRun.session.id)
+			.getOrDefault(0.0)
 		val captureResult = if (shouldRecord) {
 			onServerThread(server) {
 				BenchmarkPresetManager.captureSessionResult(preparedRun.session)
@@ -251,6 +253,7 @@ object BenchmarkExecutionManager {
 						cachedInputTokens = tokenTotals.cachedInputTokens,
 						reasoningTokens = tokenTotals.reasoningTokens,
 						generationDurationMillis = tokenTotals.generationDurationMillis,
+						estimatedCost = estimatedCost,
 					),
 				).getOrThrow()
 			} else {

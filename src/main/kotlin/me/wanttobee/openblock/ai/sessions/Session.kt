@@ -69,7 +69,12 @@ class Session(
 			outputTokens = 0,
 			cachedInputTokens = 0,
 			reasoningTokens = 0,
+			estimatedCost = 0.0,
 		)
+	}
+
+	fun estimatedCost(): Result<Double> {
+		return SessionLogger.estimatedCost(storagePath, id)
 	}
 	fun effectiveSystemPrompt(): Result<String> {
 		val basePrompt = systemPrompt?.trim().orEmpty()

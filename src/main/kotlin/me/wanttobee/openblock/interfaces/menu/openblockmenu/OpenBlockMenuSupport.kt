@@ -140,13 +140,24 @@ internal object OpenBlockMenuSupport {
 		outputTokens: Long,
 		cachedInputTokens: Long,
 		reasoningTokens: Long,
+		estimatedCost: Double? = null,
 	): List<Component> {
 		return listOf(
 			Component.literal("input tokens: $inputTokens").withStyle(ChatFormatting.DARK_GRAY),
 			Component.literal("output tokens: $outputTokens").withStyle(ChatFormatting.DARK_GRAY),
 			Component.literal("cached input tokens: $cachedInputTokens").withStyle(ChatFormatting.DARK_GRAY),
 			Component.literal("reasoning tokens: $reasoningTokens").withStyle(ChatFormatting.DARK_GRAY),
+			Component.literal("estimated cost: ${estimatedCost?.let(::formatEstimatedCost) ?: "n/a"}").withStyle(ChatFormatting.GRAY),
 		)
+	}
+
+	fun formatEstimatedCost(cost: Double): String {
+		return when {
+			cost >= 100.0 -> String.format(Locale.ROOT, "$%.2f", cost)
+			cost >= 1.0 -> String.format(Locale.ROOT, "$%.3f", cost)
+			cost >= 0.01 -> String.format(Locale.ROOT, "$%.4f", cost)
+			else -> String.format(Locale.ROOT, "$%.6f", cost)
+		}
 	}
 
 	fun toolDisplayName(tool: AiTool): String {

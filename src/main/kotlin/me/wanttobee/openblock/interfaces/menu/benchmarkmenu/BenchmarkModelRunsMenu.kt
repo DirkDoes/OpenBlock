@@ -210,6 +210,7 @@ internal class BenchmarkModelRunsMenu(
 			outputTokens = tokenUsage.outputTokens,
 			cachedInputTokens = tokenUsage.cachedInputTokens,
 			reasoningTokens = tokenUsage.reasoningTokens,
+			estimatedCost = tokenUsage.estimatedCost,
 		)
 	}
 

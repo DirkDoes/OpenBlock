@@ -34,6 +34,32 @@ object GoogleAiProvider : AiProvider {
 		numericExamples = listOf(1024, 8192, 24576),
 		allowsNone = true,
 	)
+	private val modelPricing = mapOf(
+		"gemini-3.1-pro-preview" to thresholdPricing(
+			defaultInput = 2.00,
+			defaultOutput = 12.00,
+			defaultCachedInput = 0.20,
+			thresholdInputTokens = 200_000L,
+			thresholdInput = 4.00,
+			thresholdOutput = 18.00,
+			thresholdCachedInput = 0.40,
+			thresholdReasoning = 18.00,
+		),
+		"gemini-3.1-flash-lite-preview" to flatRatePricing(0.25, 1.50, 0.025),
+		"gemini-3-flash-preview" to flatRatePricing(0.50, 3.00, 0.05),
+		"gemini-2.5-pro" to thresholdPricing(
+			defaultInput = 1.25,
+			defaultOutput = 10.00,
+			defaultCachedInput = 0.125,
+			thresholdInputTokens = 200_000L,
+			thresholdInput = 2.50,
+			thresholdOutput = 15.00,
+			thresholdCachedInput = 0.25,
+			thresholdReasoning = 15.00,
+		),
+		"gemini-2.5-flash" to flatRatePricing(0.30, 2.50, 0.03),
+		"gemini-2.5-flash-lite" to flatRatePricing(0.10, 0.40, 0.01),
+	)
 
 	override val name = "google"
 	override val displayName = "Google"
@@ -55,6 +81,61 @@ object GoogleAiProvider : AiProvider {
 		withClient { client ->
 			client.models.get("models/$defaultModel", null)
 		}.getOrThrow()
+	}
+
+	override fun pricing(modelName: String): Result<ModelTokenPricing> {
+		return modelPricing.entries.firstOrNull { (entryModelName, _) ->
+			entryModelName.equals(modelName, ignoreCase = true)
+		}?.value?.let(Result.Companion::success)
+			?: Result.failure(NoSuchElementException("Google has no pricing entry for $modelName."))
+	}
+
+	private fun flatRatePricing(
+		input: Double,
+		output: Double,
+		cachedInput: Double? = null,
+		reasoning: Double? = null,
+	): ModelTokenPricing {
+		return ModelTokenPricing(
+			tiers = listOf(
+				ModelTokenPricing.Tier(
+					inputUsdPerMillionTokens = input,
+					outputUsdPerMillionTokens = output,
+					cachedInputUsdPerMillionTokens = cachedInput,
+					reasoningUsdPerMillionTokens = reasoning,
+				)
+			)
+		)
+	}
+
+	private fun thresholdPricing(
+		defaultInput: Double,
+		defaultOutput: Double,
+		defaultCachedInput: Double? = null,
+		defaultReasoning: Double? = null,
+		thresholdInputTokens: Long,
+		thresholdInput: Double,
+		thresholdOutput: Double,
+		thresholdCachedInput: Double? = null,
+		thresholdReasoning: Double? = null,
+	): ModelTokenPricing {
+		return ModelTokenPricing(
+			tiers = listOf(
+				ModelTokenPricing.Tier(
+					inputUsdPerMillionTokens = defaultInput,
+					outputUsdPerMillionTokens = defaultOutput,
+					cachedInputUsdPerMillionTokens = defaultCachedInput,
+					reasoningUsdPerMillionTokens = defaultReasoning,
+				),
+				ModelTokenPricing.Tier(
+					inputUsdPerMillionTokens = thresholdInput,
+					outputUsdPerMillionTokens = thresholdOutput,
+					cachedInputUsdPerMillionTokens = thresholdCachedInput,
+					reasoningUsdPerMillionTokens = thresholdReasoning,
+					inputTokensThreshold = thresholdInputTokens,
+				),
+			)
+		)
 	}
 
 	override fun applyReasoning(model: AiModel, value: String?): Result<AiModel> {

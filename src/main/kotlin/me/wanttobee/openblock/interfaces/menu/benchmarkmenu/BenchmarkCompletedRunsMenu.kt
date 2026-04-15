@@ -182,6 +182,7 @@ internal class BenchmarkCompletedRunsMenu(
 					outputTokens = summary.tokenUsage.outputTokens,
 					cachedInputTokens = summary.tokenUsage.cachedInputTokens,
 					reasoningTokens = summary.tokenUsage.reasoningTokens,
+					estimatedCost = summary.tokenUsage.estimatedCost,
 				)
 			)
 		},
