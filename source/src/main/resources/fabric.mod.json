@@ -13,27 +13,17 @@
 	},
 	"license": "CC0-1.0",
 	"icon": "assets/openblock/icon.png",
-	"environment": "*",
+	"environment": "server",
 	"entrypoints": {
 		"server": [
 			{
 				"value": "me.wanttobee.openblock.OpenBlock",
 				"adapter": "kotlin"
 			}
-		],
-		"fabric-datagen": [
-			{
-				"value": "me.wanttobee.openblock.OpenBlockDataGenerator",
-				"adapter": "kotlin"
-			}
 		]
 	},
 	"mixins": [
-		"openblock.mixins.json",
-		{
-			"config": "openblock.client.mixins.json",
-			"environment": "client"
-		}
+		"openblock.mixins.json"
 	],
 	"depends": {
 		"fabricloader": ">=0.18.5",

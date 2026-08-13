@@ -16,6 +16,7 @@ The role of this file is to describe common mistakes and confusion points that a
 
 ---
 ## Agent Notes (Surprises Encountered)
+- `LOCAL_AGENTS.md` may refer to the stale path `minecraft mods\OpenBlock`; the repository currently lives at `minecraft plugins\OpenBlock`, and Gradle commands must run from its `source/` directory.
 - `AiService` should stay focused on communication with AI providers. Session management, player-context capture, command orchestration, and similar behavior should be implemented in dedicated classes instead of being placed directly inside `AiService`.
 - Command classes must not contain business logic. They should delegate behavior to the implementation layer and only handle command wiring plus player-facing output.
 - Outside `ai/providers`, code must not know which provider or model-specific implementation is active. Provider/model-specific request building, capability handling, and tool schema translation belong inside the `AiProvider` implementations.

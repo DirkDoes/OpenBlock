@@ -22,19 +22,16 @@ repositories {
 }
 
 loom {
-	splitEnvironmentSourceSets()
-
 	mods {
 		register("openblock") {
 			sourceSet(sourceSets.main.get())
-			sourceSet(sourceSets.getByName("client"))
 		}
 	}
-}
 
-fabricApi {
-	configureDataGeneration {
-		client = true
+	runs {
+		named("server") {
+			runDir = "../server"
+		}
 	}
 }
 
@@ -83,7 +80,7 @@ java {
 tasks.jar {
 	inputs.property("archivesName", base.archivesName)
 
-	from("LICENSE") {
+	from("../LICENSE") {
 		rename { "${it}_${base.archivesName.get()}" }
 	}
 }
