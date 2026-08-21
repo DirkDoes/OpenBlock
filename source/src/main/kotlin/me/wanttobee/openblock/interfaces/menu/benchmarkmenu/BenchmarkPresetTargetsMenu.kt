@@ -45,7 +45,7 @@ internal class BenchmarkPresetTargetsMenu(
 			setDisplayItem(
 				centerContentSlot(),
 				MenuItems.menuItem(
-					item = Items.YELLOW_STAINED_GLASS,
+					item = Items.STAINED_GLASS.yellow(),
 					name = Component.literal("No targets").withStyle(ChatFormatting.YELLOW),
 					lore = listOf(Component.literal("Use the footer to add a preset target.").withStyle(ChatFormatting.GRAY)),
 				),
@@ -82,7 +82,7 @@ internal class BenchmarkPresetTargetsMenu(
 		setButton(
 			footerLeftOuterSlot,
 			MenuItems.menuItem(
-				item = Items.YELLOW_STAINED_GLASS_PANE,
+				item = Items.STAINED_GLASS_PANE.yellow(),
 				name = Component.literal("Add Target").withStyle(ChatFormatting.YELLOW),
 				lore = listOf(Component.literal("Create a new preset target.").withStyle(ChatFormatting.GRAY)),
 			),
@@ -148,7 +148,7 @@ internal class BenchmarkPresetTargetsMenu(
 	}
 
 	private fun targetItem(target: BenchmarkPresetManager.PresetTargetEntry, selected: Boolean) = MenuItems.menuItem(
-		item = Items.YELLOW_STAINED_GLASS,
+		item = Items.STAINED_GLASS.yellow(),
 		name = Component.literal(target.key).withStyle(ChatFormatting.YELLOW),
 		lore = listOf(Component.literal(target.description.ifBlank { " " }).withStyle(ChatFormatting.GRAY)),
 		glint = selected,

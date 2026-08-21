@@ -10,6 +10,7 @@ import java.util.UUID
 object Commands {
 	fun register() {
 		CommandRegistrationCallback.EVENT.register { dispatcher, _, _ ->
+			CodexCommands.register(dispatcher)
 			EnvCommands.register(dispatcher)
 			OpenBlockCommands.register(dispatcher)
 			BenchmarkCommands.register(dispatcher)

@@ -45,7 +45,7 @@ internal class BenchmarkActiveRunsMenu(
 			setDisplayItem(
 				centerContentSlot(),
 				MenuItems.menuItem(
-					item = Items.GRAY_WOOL,
+					item = Items.WOOL.gray(),
 					name = Component.literal("No active benchmark run").withStyle(ChatFormatting.GRAY),
 					lore = listOf(Component.literal("It is not running a session anymore.").withStyle(ChatFormatting.GRAY)),
 				),

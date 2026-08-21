@@ -16,6 +16,7 @@ The role of this file is to describe common mistakes and confusion points that a
 
 ---
 ## Agent Notes (Surprises Encountered)
+- The Codex subscription provider deliberately owns its OAuth tokens and direct Responses requests. It must not launch the Codex CLI/app-server or read shared Codex credentials from `~/.codex`.
 - `LOCAL_AGENTS.md` may refer to the stale path `minecraft mods\OpenBlock`; the repository currently lives at `minecraft plugins\OpenBlock`, and Gradle commands must run from its `source/` directory.
 - `AiService` should stay focused on communication with AI providers. Session management, player-context capture, command orchestration, and similar behavior should be implemented in dedicated classes instead of being placed directly inside `AiService`.
 - Command classes must not contain business logic. They should delegate behavior to the implementation layer and only handle command wiring plus player-facing output.
@@ -25,3 +26,4 @@ The role of this file is to describe common mistakes and confusion points that a
 - Brigadier `ArgumentBuilder.then(...)` effectively snapshots the child command node at attach time. If you build generic command trees, add an argument node's child arguments and execute handlers before attaching that node to its parent, or the later-added descendants will not be reachable in the registered command.
 - Standalone AI sessions that are not bound to an online player still need a sandbox-aware command source. For tool flows such as block placement or sandbox-target creation, resolve the command source from the session sandbox dimension/position instead of falling back to the generic server source, or relative coordinates and dimension-scoped actions will silently operate from the wrong context.
 - Google GenAI `FunctionResponse.Builder.id(String)` does not accept `null`. When echoing tool results back to Gemini, only set `id` if the incoming `FunctionCall.id()` is present; passing `orElse(null)` into the builder throws a `NullPointerException` after successful tool execution and prevents the final assistant reply from being appended.
+- Minecraft 26.2 groups dyed block-backed constants into collections. Use accessors such as `Items.WOOL.white()`, `Items.DYED_CANDLE.lime()`, `Blocks.CONCRETE.red()`, and `EntityTypes.BLOCK_DISPLAY` instead of the pre-26.2 individual constants.

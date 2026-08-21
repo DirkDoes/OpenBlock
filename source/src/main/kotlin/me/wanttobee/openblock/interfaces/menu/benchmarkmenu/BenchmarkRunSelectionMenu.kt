@@ -136,7 +136,7 @@ internal class BenchmarkRunSelectionMenu(
 	}
 
 	private fun entryItem() = when (entry.kind) {
-		BenchmarkCatalogManager.EntryKind.FOLDER -> Items.WHITE_SHULKER_BOX
-		BenchmarkCatalogManager.EntryKind.PRESET -> Items.WHITE_CANDLE
+		BenchmarkCatalogManager.EntryKind.FOLDER -> Items.DYED_SHULKER_BOX.white()
+		BenchmarkCatalogManager.EntryKind.PRESET -> Items.DYED_CANDLE.white()
 	}
 }

@@ -50,7 +50,7 @@ internal class BenchmarkTagMenu(
 			setDisplayItem(
 				centerContentSlot(),
 				MenuItems.menuItem(
-					item = Items.WHITE_CANDLE,
+					item = Items.DYED_CANDLE.white(),
 					name = Component.literal("No tags").withStyle(ChatFormatting.YELLOW),
 					lore = listOf(Component.literal("Use the lime candle below to add a benchmark tag.").withStyle(ChatFormatting.GRAY)),
 				),
@@ -87,7 +87,7 @@ internal class BenchmarkTagMenu(
 		setButton(
 			footerLeftOuterSlot,
 			MenuItems.menuItem(
-				item = Items.LIME_CANDLE,
+				item = Items.DYED_CANDLE.lime(),
 				name = Component.literal("Add Tag").withStyle(ChatFormatting.YELLOW),
 				lore = listOf(Component.literal("Create a new benchmark tag.").withStyle(ChatFormatting.GRAY)),
 			),
@@ -140,7 +140,7 @@ internal class BenchmarkTagMenu(
 	}
 
 	private fun tagItem(tag: BenchmarkTagManager.TagEntry, selected: Boolean) = MenuItems.menuItem(
-		item = if (selected) Items.ORANGE_CANDLE else Items.WHITE_CANDLE,
+		item = if (selected) Items.DYED_CANDLE.orange() else Items.DYED_CANDLE.white(),
 		name = Component.literal(tag.name).withStyle(ChatFormatting.YELLOW),
 	)
 }

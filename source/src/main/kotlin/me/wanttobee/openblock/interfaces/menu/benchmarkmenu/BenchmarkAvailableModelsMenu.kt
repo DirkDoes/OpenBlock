@@ -35,7 +35,7 @@ internal class BenchmarkAvailableModelsMenu(
 			setDisplayItem(
 				centerContentSlot(),
 				MenuItems.menuItem(
-					item = Items.WHITE_WOOL,
+					item = Items.WOOL.white(),
 					name = Component.literal("No models available").withStyle(ChatFormatting.YELLOW),
 					lore = listOf(Component.literal("Every known model is already tracked.").withStyle(ChatFormatting.GRAY)),
 				),

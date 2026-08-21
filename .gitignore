@@ -34,6 +34,8 @@ replay_pid*
 
 # Local Minecraft server runtime
 server/
+test-server/
+**/openblock-data/codex-auth.json
 
 # IDE files
 .idea/

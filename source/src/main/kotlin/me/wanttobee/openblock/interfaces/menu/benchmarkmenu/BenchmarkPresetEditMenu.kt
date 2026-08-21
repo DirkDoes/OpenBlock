@@ -131,7 +131,7 @@ internal class BenchmarkPresetEditMenu(
 		setButton(
 			6,
 			MenuItems.menuItem(
-				item = Items.YELLOW_STAINED_GLASS,
+				item = Items.STAINED_GLASS.yellow(),
 				name = Component.literal("Targets").withStyle(ChatFormatting.YELLOW),
 				lore = listOf(Component.literal("Edit the preset target keys and descriptions.").withStyle(ChatFormatting.GRAY)),
 			),

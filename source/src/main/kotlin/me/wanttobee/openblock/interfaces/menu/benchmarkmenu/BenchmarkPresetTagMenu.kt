@@ -43,7 +43,7 @@ internal class BenchmarkPresetTagMenu(
 				setDisplayItem(
 					centerContentSlot(),
 					MenuItems.menuItem(
-						item = Items.WHITE_CANDLE,
+						item = Items.DYED_CANDLE.white(),
 						name = Component.literal("No tags").withStyle(ChatFormatting.YELLOW),
 					),
 				)
@@ -107,7 +107,7 @@ internal class BenchmarkPresetTagMenu(
 	}
 
 	private fun tagItem(tag: BenchmarkTagManager.TagEntry, selected: Boolean) = MenuItems.menuItem(
-		item = Items.WHITE_CANDLE,
+		item = Items.DYED_CANDLE.white(),
 		name = Component.literal(tag.name).withStyle(ChatFormatting.YELLOW),
 		glint = selected,
 	)

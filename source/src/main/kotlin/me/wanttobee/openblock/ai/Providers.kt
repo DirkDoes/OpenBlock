@@ -4,12 +4,14 @@ import me.wanttobee.openblock.ai.sessions.AiModel
 import me.wanttobee.openblock.ai.sessions.base.SessionTokenUsage
 import me.wanttobee.openblock.ai.providers.AiProvider
 import me.wanttobee.openblock.ai.providers.AnthropicProvider
+import me.wanttobee.openblock.ai.providers.CodexSubscriptionProvider
 import me.wanttobee.openblock.ai.providers.GoogleAiProvider
 import me.wanttobee.openblock.ai.providers.OpenAiProvider
 
 object Providers {
 	val all: List<AiProvider> = listOf(
 		OpenAiProvider,
+		CodexSubscriptionProvider,
 		AnthropicProvider,
 		GoogleAiProvider,
 	)

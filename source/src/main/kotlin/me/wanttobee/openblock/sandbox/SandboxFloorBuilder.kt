@@ -28,7 +28,7 @@ object SandboxFloorBuilder {
 				val blockState = if (isEdge) {
 					Blocks.IRON_BLOCK.defaultBlockState()
 				} else {
-					Blocks.WHITE_CONCRETE.defaultBlockState()
+					Blocks.CONCRETE.white().defaultBlockState()
 				}
 				val existingState = level.getBlockState(position)
 				if (existingState == blockState) {
@@ -87,7 +87,7 @@ object SandboxFloorBuilder {
 				val expectedState = if (isEdge) {
 					Blocks.IRON_BLOCK.defaultBlockState()
 				} else {
-					Blocks.WHITE_CONCRETE.defaultBlockState()
+					Blocks.CONCRETE.white().defaultBlockState()
 				}
 				if (level.getBlockState(position) != expectedState) {
 					continue

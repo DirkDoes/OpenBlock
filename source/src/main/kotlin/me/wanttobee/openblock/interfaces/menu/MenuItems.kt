@@ -53,7 +53,7 @@ internal object MenuItems {
 
 	fun blockedPaneItem(): ItemStack {
 		return menuItem(
-			item = Items.BLACK_STAINED_GLASS_PANE,
+			item = Items.STAINED_GLASS_PANE.black(),
 			name = Component.literal(" "),
 			hideTooltip = true,
 		)
@@ -61,14 +61,14 @@ internal object MenuItems {
 
 	fun placeholderPaneItem(): ItemStack {
 		return menuItem(
-			item = Items.GRAY_STAINED_GLASS_PANE,
+			item = Items.STAINED_GLASS_PANE.gray(),
 			name = Component.literal(" "),
 			hideTooltip = true,
 		)
 	}
 
 	fun namelessPlaceholderPaneItem(): ItemStack {
-		return ItemStack(Items.GRAY_STAINED_GLASS_PANE).apply {
+		return ItemStack(Items.STAINED_GLASS_PANE.gray()).apply {
 			set(DataComponents.TOOLTIP_DISPLAY, TooltipDisplay(true, linkedSetOf()))
 		}
 	}

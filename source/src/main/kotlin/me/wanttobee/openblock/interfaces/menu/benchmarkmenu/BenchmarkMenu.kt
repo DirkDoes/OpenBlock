@@ -111,7 +111,7 @@ internal object BenchmarkMenu {
 	}
 
 	fun openCreateFolderInput(player: ServerPlayer, pathSegments: List<String>, returnPage: Int) {
-		openNameInput(player, "Create Folder", Items.WHITE_SHULKER_BOX, "", onSubmit = { submittedName ->
+		openNameInput(player, "Create Folder", Items.DYED_SHULKER_BOX.white(), "", onSubmit = { submittedName ->
 			BenchmarkCatalogManager.createFolder(pathSegments, submittedName)
 				.onSuccess { entry ->
 					openCatalog(player, pathSegments, returnPage, entry.storedName)
@@ -141,7 +141,7 @@ internal object BenchmarkMenu {
 	}
 
 	fun openCreateTagInput(player: ServerPlayer, returnPage: Int) {
-		openNameInput(player, "Create Tag", Items.LIME_CANDLE, "", onSubmit = { submittedName ->
+		openNameInput(player, "Create Tag", Items.DYED_CANDLE.lime(), "", onSubmit = { submittedName ->
 			BenchmarkTagManager.createTag(submittedName)
 				.onSuccess { entry ->
 					openTags(player, returnPage, entry.id)
@@ -301,7 +301,7 @@ internal object BenchmarkMenu {
 		entry: BenchmarkCatalogManager.CatalogEntry,
 		page: Int,
 	) {
-		openNameInput(player, "Target Key", Items.YELLOW_STAINED_GLASS, "", onSubmit = { submittedKey ->
+		openNameInput(player, "Target Key", Items.STAINED_GLASS.yellow(), "", onSubmit = { submittedKey ->
 			openCreatePresetTargetDescriptionInput(player, pathSegments, returnPage, entry, page, submittedKey)
 		})
 	}
@@ -314,7 +314,7 @@ internal object BenchmarkMenu {
 		page: Int,
 		target: BenchmarkPresetManager.PresetTargetEntry,
 	) {
-		openNameInput(player, "Change Target Name", Items.YELLOW_STAINED_GLASS, target.key, onSubmit = { submittedKey ->
+		openNameInput(player, "Change Target Name", Items.STAINED_GLASS.yellow(), target.key, onSubmit = { submittedKey ->
 			BenchmarkPresetManager.renameTarget(pathSegments, entry, target.key, submittedKey)
 				.onSuccess { renamedTarget ->
 					openPresetTargetsMenu(player, pathSegments, returnPage, entry, page, renamedTarget.key)
@@ -399,7 +399,7 @@ internal object BenchmarkMenu {
 		returnPage: Int,
 		entry: BenchmarkTagManager.TagEntry,
 	) {
-		openNameInput(player, "Rename Tag", Items.WHITE_CANDLE, entry.name, onSubmit = { submittedName ->
+		openNameInput(player, "Rename Tag", Items.DYED_CANDLE.white(), entry.name, onSubmit = { submittedName ->
 			BenchmarkTagManager.renameTag(entry, submittedName)
 				.onSuccess { renamedEntry ->
 					openTags(player, returnPage, renamedEntry.id)
@@ -493,7 +493,7 @@ internal object BenchmarkMenu {
 
 	private fun BenchmarkCatalogManager.CatalogEntry.iconItem(): Item {
 		return when (kind) {
-			BenchmarkCatalogManager.EntryKind.FOLDER -> Items.WHITE_SHULKER_BOX
+			BenchmarkCatalogManager.EntryKind.FOLDER -> Items.DYED_SHULKER_BOX.white()
 			BenchmarkCatalogManager.EntryKind.PRESET -> Items.IRON_INGOT
 		}
 	}

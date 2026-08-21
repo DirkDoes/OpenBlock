@@ -22,7 +22,7 @@ import kotlin.math.cos
 
 internal object OpenBlockMenuSupport {
 	fun providerWool(provider: AiProvider?): ItemLike {
-		return provider?.let { Items.WHITE_WOOL.colorize(it.chatColor) } ?: Items.WHITE_WOOL
+		return provider?.let { Items.WOOL.white().colorize(it.chatColor) } ?: Items.WOOL.white()
 	}
 
 	fun providerWool(providerName: String?): ItemLike {

@@ -1,6 +1,7 @@
 package me.wanttobee.openblock
 
 import me.wanttobee.openblock.ai.toolcalling.BlockPlacementToolsSupport
+import me.wanttobee.openblock.ai.providers.codex.CodexSubscriptionService
 import me.wanttobee.openblock.benchmarking.BenchmarkBookInputManager
 import me.wanttobee.openblock.interfaces.chat.ChatModeManager
 import me.wanttobee.openblock.interfaces.commands.Commands
@@ -34,6 +35,7 @@ object OpenBlock : DedicatedServerModInitializer {
 			Server = server
 		}
 		ServerLifecycleEvents.SERVER_STOPPED.register { server ->
+			CodexSubscriptionService.close()
 			if (Server === server) Server = null
 		}
 		Commands.register()

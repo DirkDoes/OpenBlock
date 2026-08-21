@@ -60,7 +60,7 @@ internal class BenchmarkPresetSessionsMenu(
 			setDisplayItem(
 				centerContentSlot(),
 				MenuItems.menuItem(
-					item = Items.GRAY_WOOL,
+					item = Items.WOOL.gray(),
 					name = Component.literal("No sessions").withStyle(ChatFormatting.GRAY),
 					lore = listOf(Component.literal("This benchmark preset has not been run yet.").withStyle(ChatFormatting.GRAY)),
 				),
@@ -101,7 +101,7 @@ internal class BenchmarkPresetSessionsMenu(
 			setButton(
 				footerRightInnerSlot,
 				MenuItems.menuItem(
-					item = Items.LIME_WOOL,
+					item = Items.WOOL.lime(),
 					name = Component.literal("Set Success").withStyle(ChatFormatting.GREEN),
 				),
 			) { _, button, input ->
@@ -119,7 +119,7 @@ internal class BenchmarkPresetSessionsMenu(
 			setButton(
 				footerRightOuterSlot,
 				MenuItems.menuItem(
-					item = Items.RED_WOOL,
+					item = Items.WOOL.red(),
 					name = Component.literal("Set Failure").withStyle(ChatFormatting.RED),
 				),
 			) { _, button, input ->
@@ -147,10 +147,10 @@ internal class BenchmarkPresetSessionsMenu(
 
 	private fun sessionItem(session: BenchmarkRunsManager.PresetRunSession) = MenuItems.menuItem(
 		item = when {
-			!session.considered -> Items.LIGHT_GRAY_WOOL
-			session.status == BenchmarkRunsManager.RunValidationStatus.SUCCESS -> Items.LIME_WOOL
-			session.status == BenchmarkRunsManager.RunValidationStatus.FAILURE -> Items.RED_WOOL
-			else -> Items.CYAN_WOOL
+			!session.considered -> Items.WOOL.lightGray()
+			session.status == BenchmarkRunsManager.RunValidationStatus.SUCCESS -> Items.WOOL.lime()
+			session.status == BenchmarkRunsManager.RunValidationStatus.FAILURE -> Items.WOOL.red()
+			else -> Items.WOOL.cyan()
 		},
 		name = Component.literal("Session ${session.sessionId.toString().take(8)}").withStyle(ChatFormatting.WHITE),
 		lore = buildList {

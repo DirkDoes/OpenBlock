@@ -13,7 +13,7 @@ import net.minecraft.resources.ResourceKey
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.util.Brightness
 import net.minecraft.world.entity.Display
-import net.minecraft.world.entity.EntityType
+import net.minecraft.world.entity.EntityTypes
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
@@ -28,10 +28,10 @@ object DisplayEntitySandboxRenderer {
 	private const val OUTWARD_RATIO = 1.0 / 3.0
 	private const val INWARD_RATIO = 2.0 / 3.0
 	private const val REFRESH_INTERVAL_TICKS = 20
-	private val WHITE_BLOCK_STATE: BlockState = Blocks.WHITE_CONCRETE.defaultBlockState()
-	private val CYAN_BLOCK_STATE: BlockState = Blocks.CYAN_CONCRETE.defaultBlockState()
-	private val YELLOW_BLOCK_STATE: BlockState = Blocks.YELLOW_CONCRETE.defaultBlockState()
-	private val RED_BLOCK_STATE: BlockState = Blocks.RED_CONCRETE.defaultBlockState()
+	private val WHITE_BLOCK_STATE: BlockState = Blocks.CONCRETE.white().defaultBlockState()
+	private val CYAN_BLOCK_STATE: BlockState = Blocks.CONCRETE.cyan().defaultBlockState()
+	private val YELLOW_BLOCK_STATE: BlockState = Blocks.CONCRETE.yellow().defaultBlockState()
+	private val RED_BLOCK_STATE: BlockState = Blocks.CONCRETE.red().defaultBlockState()
 	private val renderedEntitiesByPlayer = ConcurrentHashMap<UUID, List<RenderedEntity>>()
 	private var tickCounter = 0L
 
@@ -240,7 +240,7 @@ object DisplayEntitySandboxRenderer {
 		scaleZ: Float,
 		blockState: BlockState,
 	): RenderedEntity? {
-		val display = Display.BlockDisplay(EntityType.BLOCK_DISPLAY, level)
+		val display = Display.BlockDisplay(EntityTypes.BLOCK_DISPLAY, level)
 		display.setPos(x, y, z)
 		display.setBlockState(blockState)
 		display.setTransformation(

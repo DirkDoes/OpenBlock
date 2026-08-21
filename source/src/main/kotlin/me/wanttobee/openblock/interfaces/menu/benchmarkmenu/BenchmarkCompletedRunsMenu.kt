@@ -82,7 +82,7 @@ internal class BenchmarkCompletedRunsMenu(
 		setButton(
 			footerLeftOuterSlot,
 			MenuItems.menuItem(
-				item = Items.LIME_WOOL,
+				item = Items.WOOL.lime(),
 				name = Component.literal("Add Model").withStyle(ChatFormatting.YELLOW),
 				lore = listOf(Component.literal("Add another model to the tracked benchmark results.").withStyle(ChatFormatting.GRAY)),
 			),

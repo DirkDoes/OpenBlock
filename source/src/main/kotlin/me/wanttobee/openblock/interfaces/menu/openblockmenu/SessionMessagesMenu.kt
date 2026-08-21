@@ -63,10 +63,10 @@ internal class SessionMessagesMenu(
 
 	private fun messageItem(message: SessionMessage) = MenuItems.menuItem(
 		item = when (message.type) {
-			SessionMessage.Type.USER -> Items.LIGHT_GRAY_WOOL
-			SessionMessage.Type.ERROR -> Items.RED_STAINED_GLASS
+			SessionMessage.Type.USER -> Items.WOOL.lightGray()
+			SessionMessage.Type.ERROR -> Items.STAINED_GLASS.red()
 			SessionMessage.Type.ASSISTANT -> OpenBlockMenuSupport.providerWool(message.providerName)
-			SessionMessage.Type.TOOL -> Items.GRAY_WOOL
+			SessionMessage.Type.TOOL -> Items.WOOL.gray()
 		},
 		name = Component.literal(messageTitle(message)).withStyle(messageTitleStyle(message), ChatFormatting.ITALIC),
 		lore = messageLore(message),

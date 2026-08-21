@@ -28,7 +28,7 @@ internal class BenchmarkMainMenu(
 		setButton(
 			0,
 			MenuItems.menuItem(
-				item = Items.OXIDIZED_COPPER_CHEST,
+			item = Items.COPPER_CHEST.weathering().oxidized(),
 				name = Component.literal("Tag").withStyle(ChatFormatting.YELLOW),
 				lore = listOf(Component.literal("Open benchmark tags.").withStyle(ChatFormatting.GRAY)),
 			),

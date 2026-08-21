@@ -47,7 +47,7 @@ internal class BenchmarkModelRunsMenu(
 			setDisplayItem(
 				centerContentSlot(),
 				MenuItems.menuItem(
-					item = Items.WHITE_SHULKER_BOX,
+					item = Items.DYED_SHULKER_BOX.white(),
 					name = Component.literal("No benchmark entries").withStyle(ChatFormatting.YELLOW),
 					lore = listOf(Component.literal("This folder does not contain any benchmark presets yet.").withStyle(ChatFormatting.GRAY)),
 				),
@@ -167,10 +167,10 @@ internal class BenchmarkModelRunsMenu(
 	private fun entryItem(summary: BenchmarkRunsManager.EntrySummary, selected: Boolean) = MenuItems.menuItem(
 		item = when (summary.entry.kind) {
 			me.wanttobee.openblock.benchmarking.BenchmarkCatalogManager.EntryKind.FOLDER ->
-				Items.WHITE_SHULKER_BOX.colorize(scoreColor(summary.total))
+				Items.DYED_SHULKER_BOX.white().colorize(scoreColor(summary.total))
 
 			me.wanttobee.openblock.benchmarking.BenchmarkCatalogManager.EntryKind.PRESET ->
-				Items.WHITE_CANDLE.colorize(scoreColor(summary.total))
+				Items.DYED_CANDLE.white().colorize(scoreColor(summary.total))
 		},
 		name = Component.literal(summary.entry.displayName).withStyle(ChatFormatting.WHITE),
 		lore = when (summary.entry.kind) {

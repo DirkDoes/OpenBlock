@@ -54,7 +54,7 @@ object ExampleMenu {
 				setDisplayItem(
 					slot,
 					MenuItems.menuItem(
-						item = Items.GRAY_STAINED_GLASS_PANE,
+						item = Items.STAINED_GLASS_PANE.gray(),
 						name = Component.literal("Locked").withStyle(ChatFormatting.DARK_GRAY),
 					)
 				)
@@ -95,7 +95,7 @@ object ExampleMenu {
 		}
 
 		private fun toggleStateItem() = MenuItems.menuItem(
-			item = if (isEnabled(playerId)) Items.LIME_WOOL else Items.RED_WOOL,
+			item = if (isEnabled(playerId)) Items.WOOL.lime() else Items.WOOL.red(),
 			name = Component.literal("Toggle").withStyle(ChatFormatting.YELLOW),
 			lore = listOf(
 				Component.literal("Current state: ").withStyle(ChatFormatting.GRAY)

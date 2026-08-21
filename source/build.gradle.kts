@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
 	id("net.fabricmc.fabric-loom")
 	`maven-publish`
-	id("org.jetbrains.kotlin.jvm") version "2.3.20"
+	id("org.jetbrains.kotlin.jvm") version "2.4.0"
 }
 
 version = providers.gradleProperty("mod_version").get()
@@ -47,6 +47,7 @@ dependencies {
 	implementation("com.openai:openai-java:4.30.0")
 	implementation("com.anthropic:anthropic-java:2.18.0")
 	implementation("com.google.genai:google-genai:1.44.0")
+	testImplementation(kotlin("test"))
 }
 
 tasks.processResources {
@@ -59,6 +60,10 @@ tasks.processResources {
 
 tasks.withType<JavaCompile>().configureEach {
 	options.release = 25
+}
+
+tasks.test {
+	useJUnitPlatform()
 }
 
 kotlin {

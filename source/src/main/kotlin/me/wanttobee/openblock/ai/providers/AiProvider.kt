@@ -14,7 +14,7 @@ import net.minecraft.ChatFormatting
 interface AiProvider {
 	val name: String
 	val displayName: String
-	val apiKeyVariable: String
+	val apiKeyVariable: String?
 	val defaultModel: String
 	val models: List<AiModel>
 	val chatColor: ChatFormatting
